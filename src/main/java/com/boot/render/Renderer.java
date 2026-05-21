@@ -57,6 +57,7 @@ public final class Renderer {
         terrainShader.setMat4("uModel", model.identity());
         terrainShader.setVec3("uLightDir", lightDir);
         terrainShader.setVec3("uAmbient", ambient);
+        terrainShader.setFloat("uMaxHeight", terrain.maxHeight());
         terrain.render();
         terrainShader.unbind();
 

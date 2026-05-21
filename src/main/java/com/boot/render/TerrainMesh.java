@@ -5,7 +5,6 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
-import java.util.Random;
 
 import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
@@ -18,6 +17,7 @@ public final class TerrainMesh {
     private final int vbo;
     private final int ebo;
     private final int indexCount;
+    private final float maxHeight;
 
     public TerrainMesh(Heightmap hm) {
         int n = hm.size();
@@ -25,12 +25,10 @@ public final class TerrainMesh {
         int vertCount = n * n;
         int triCount = (n - 1) * (n - 1) * 2;
         this.indexCount = triCount * 3;
+        this.maxHeight = Math.max(1e-3f, hm.maxHeight());
 
         FloatBuffer verts = MemoryUtil.memAllocFloat(vertCount * 6);
         IntBuffer indices = MemoryUtil.memAllocInt(indexCount);
-
-        float maxH = Math.max(1e-3f, hm.maxHeight());
-        Random rng = new Random(0xBADCAFE);
 
         try {
             for (int j = 0; j < n; j++) {
@@ -39,14 +37,15 @@ public final class TerrainMesh {
                     float z = j * quad;
                     float y = hm.heightAtGrid(i, j);
 
-                    float h01 = y / maxH;
-                    float[] c = bandColor(h01);
-                    float jitter = (rng.nextFloat() - 0.5f) * 0.06f;
-                    float r = clamp01(c[0] + jitter);
-                    float g = clamp01(c[1] + jitter);
-                    float b = clamp01(c[2] + jitter);
+                    float dhx = hm.heightAtGrid(i + 1, j) - hm.heightAtGrid(i - 1, j);
+                    float dhz = hm.heightAtGrid(i, j + 1) - hm.heightAtGrid(i, j - 1);
+                    float nx = -dhx;
+                    float ny = 2f * quad;
+                    float nz = -dhz;
+                    float inv = 1f / (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+                    nx *= inv; ny *= inv; nz *= inv;
 
-                    verts.put(x).put(y).put(z).put(r).put(g).put(b);
+                    verts.put(x).put(y).put(z).put(nx).put(ny).put(nz);
                 }
             }
             verts.flip();
@@ -87,17 +86,7 @@ public final class TerrainMesh {
         }
     }
 
-    private static float[] bandColor(float h) {
-        if (h < 0.20f) return new float[]{0.10f, 0.25f, 0.45f};
-        if (h < 0.28f) return new float[]{0.85f, 0.78f, 0.55f};
-        if (h < 0.55f) return new float[]{0.30f, 0.55f, 0.25f};
-        if (h < 0.80f) return new float[]{0.50f, 0.45f, 0.40f};
-        return new float[]{0.95f, 0.95f, 0.98f};
-    }
-
-    private static float clamp01(float v) {
-        return v < 0 ? 0 : v > 1 ? 1 : v;
-    }
+    public float maxHeight() { return maxHeight; }
 
     public void render() {
         glBindVertexArray(vao);
