@@ -1,5 +1,6 @@
 package com.boot.core;
 
+import com.boot.economy.BuildingEconomy;
 import com.boot.physics.PhysicsWorld;
 import com.boot.physics.TerrainCollider;
 import com.boot.render.Renderer;
@@ -10,6 +11,8 @@ import com.boot.ui.Minimap;
 import com.boot.world.Heightmap;
 import com.boot.world.PlacedBuilding;
 import com.boot.world.RtsCamera;
+import com.boot.world.SupplyPile;
+import com.boot.world.SupplyPileScatter;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
@@ -38,6 +41,10 @@ public final class Engine {
     private TerrainCollider terrainCollider;
 
     private final List<PlacedBuilding> placedBuildings = new ArrayList<>();
+    private final List<SupplyPile> supplyPiles = new ArrayList<>();
+    private float cashAccumulator = 0f;
+
+    private static final long WORLD_SEED = 0xC0FFEEL;
 
     public void run() {
         try {
@@ -52,8 +59,10 @@ public final class Engine {
         window = new Window("Java 3D RTS", 1600, 900);
         input = new Input(window);
 
-        heightmap = new Heightmap(256, 1.0f, 30f, 0xC0FFEEL);
+        heightmap = new Heightmap(256, 1.0f, 30f, WORLD_SEED);
         terrainMesh = new TerrainMesh(heightmap);
+
+        supplyPiles.addAll(SupplyPileScatter.scatter(heightmap, WORLD_SEED));
 
         physics = new PhysicsWorld();
         terrainCollider = new TerrainCollider(physics, heightmap);
@@ -67,6 +76,12 @@ public final class Engine {
         hud.init(window.handle());
         minimap = new Minimap(heightmap);
         hud.attachMinimap(minimap);
+
+        HudState initialState = hud.state();
+        initialState.supplyPilesView = supplyPiles;
+        int totalMapCash = 0;
+        for (SupplyPile p : supplyPiles) totalMapCash += p.cash();
+        initialState.mapCashAvailable = totalMapCash;
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_MULTISAMPLE);
@@ -99,13 +114,25 @@ public final class Engine {
                     input.gameWantsMouse());
 
             HudState state = hud.state();
+
+            int incomeRate = 0;
+            for (PlacedBuilding p : placedBuildings) incomeRate += BuildingEconomy.income(p.name());
+            state.cashPerSecond = incomeRate;
+            cashAccumulator += incomeRate * dt;
+            if (cashAccumulator >= 1f) {
+                int whole = (int) cashAccumulator;
+                state.cash += whole;
+                cashAccumulator -= whole;
+            }
+
             PlacedBuilding ghost = null;
             boolean ghostValid = false;
             if (state.pendingPlacementType != null) {
-                ghostValid = isPlacementValid(hover);
+                ghostValid = isPlacementValid(hover, state);
                 if (input.isMousePressed(GLFW_MOUSE_BUTTON_RIGHT)) {
                     state.pendingPlacementType = null;
                 } else if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT) && ghostValid) {
+                    state.cash -= BuildingEconomy.cost(state.pendingPlacementType);
                     placedBuildings.add(new PlacedBuilding(
                             state.pendingPlacementType,
                             hover.x, hover.y, hover.z, FOOTPRINT_HALF));
@@ -136,7 +163,7 @@ public final class Engine {
                 }
             }
 
-            renderer.render(window, camera, terrainMesh, placedBuildings, ghost, ghostValid);
+            renderer.render(window, camera, terrainMesh, placedBuildings, supplyPiles, ghost, ghostValid);
 
             hud.frame(dt, window, camera, hover);
 
@@ -145,8 +172,9 @@ public final class Engine {
         }
     }
 
-    private boolean isPlacementValid(Vector3f hover) {
+    private boolean isPlacementValid(Vector3f hover, HudState state) {
         if (hover == null) return false;
+        if (state.cash < BuildingEconomy.cost(state.pendingPlacementType)) return false;
         float cx = hover.x, cz = hover.z, h = FOOTPRINT_HALF;
         float a = heightmap.heightAt(cx - h, cz - h);
         float b = heightmap.heightAt(cx + h, cz - h);

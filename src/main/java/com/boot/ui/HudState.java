@@ -1,5 +1,9 @@
 package com.boot.ui;
 
+import com.boot.world.SupplyPile;
+
+import java.util.List;
+
 public final class HudState {
 
     public enum Tab { STRUCTURES, UNITS, UPGRADES }
@@ -22,6 +26,9 @@ public final class HudState {
 
     public String pendingPlacementType;
 
+    public int mapCashAvailable = 0;
+    public List<SupplyPile> supplyPilesView = List.of();
+
     public boolean hasSelection() { return !selectionName.isEmpty(); }
     public int powerSurplus() { return powerProduced - powerConsumed; }
     public boolean lowPower() { return powerSurplus() < 0; }
@@ -39,6 +46,7 @@ public final class HudState {
             "Command Center", "Power Plant", "Supply Center",
             "Barracks", "War Factory", "Airfield",
             "Strategy Center", "Detention Camp", "Patriot Battery",
+            "Black Market",
     };
     public static final String[] UNITS = {
             "Dozer", "Ranger", "Missile Defender",

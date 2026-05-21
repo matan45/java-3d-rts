@@ -5,9 +5,13 @@ import com.boot.physics.PhysicsWorld;
 import com.boot.ui.HudState;
 import com.boot.world.PlacedBuilding;
 import com.boot.world.RtsCamera;
+import com.boot.world.SupplyPile;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.lwjgl.BufferUtils;
 
+import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -21,14 +25,18 @@ public final class Renderer {
     private final Shader terrainShader;
     private final Shader buildingShader;
     private final Map<String, Mesh> buildingMeshes = new HashMap<>();
+    private final Mesh cubeMesh;
 
     private final Matrix4f model = new Matrix4f();
     private final Vector3f lightDir = new Vector3f(-0.45f, -0.85f, -0.30f).normalize().negate();
     private final Vector3f ambient = new Vector3f(0.30f, 0.32f, 0.38f);
 
     private static final float[] BUILDING_TINT  = { 0.78f, 0.74f, 0.65f, 1.00f };
+    private static final float[] SUPPLY_TINT    = { 0.20f, 0.85f, 0.30f, 1.00f };
     private static final float[] GHOST_VALID    = { 0.30f, 1.00f, 0.40f, 0.45f };
     private static final float[] GHOST_INVALID  = { 1.00f, 0.30f, 0.30f, 0.45f };
+
+    private static final float PILE_HALF = 2f;
 
     private final Vector3f rayOrigin = new Vector3f();
     private final Vector3f rayDir = new Vector3f();
@@ -42,10 +50,39 @@ public final class Renderer {
         for (String name : HudState.STRUCTURES) {
             buildingMeshes.put(name, placeholder);
         }
+
+        cubeMesh = buildUnitCube();
+    }
+
+    private static Mesh buildUnitCube() {
+        float[] verts = {
+                -1, -1,  1,   1, -1,  1,   1,  1,  1,  -1,  1,  1,
+                 1, -1, -1,  -1, -1, -1,  -1,  1, -1,   1,  1, -1,
+                 1, -1,  1,   1, -1, -1,   1,  1, -1,   1,  1,  1,
+                -1, -1, -1,  -1, -1,  1,  -1,  1,  1,  -1,  1, -1,
+                -1,  1,  1,   1,  1,  1,   1,  1, -1,  -1,  1, -1,
+                -1, -1, -1,   1, -1, -1,   1, -1,  1,  -1, -1,  1,
+        };
+        int[] idx = new int[36];
+        for (int f = 0; f < 6; f++) {
+            int base = f * 4;
+            int o = f * 6;
+            idx[o    ] = base;
+            idx[o + 1] = base + 1;
+            idx[o + 2] = base + 2;
+            idx[o + 3] = base;
+            idx[o + 4] = base + 2;
+            idx[o + 5] = base + 3;
+        }
+        FloatBuffer vb = BufferUtils.createFloatBuffer(verts.length).put(verts);
+        vb.flip();
+        IntBuffer ib = BufferUtils.createIntBuffer(idx.length).put(idx);
+        ib.flip();
+        return new Mesh(vb, ib);
     }
 
     public void render(Window window, RtsCamera camera, TerrainMesh terrain,
-                       List<PlacedBuilding> placed,
+                       List<PlacedBuilding> placed, List<SupplyPile> piles,
                        PlacedBuilding ghost, boolean ghostValid) {
         glViewport(0, 0, window.framebufferWidth(), window.framebufferHeight());
         glClearColor(0.50f, 0.65f, 0.82f, 1f);
@@ -75,6 +112,18 @@ public final class Renderer {
             model.identity().translate(p.cx(), p.cy(), p.cz());
             buildingShader.setMat4("uModel", model);
             mesh.render();
+        }
+
+        if (piles != null && !piles.isEmpty()) {
+            buildingShader.setVec4("uTint",
+                    SUPPLY_TINT[0], SUPPLY_TINT[1], SUPPLY_TINT[2], SUPPLY_TINT[3]);
+            for (SupplyPile p : piles) {
+                model.identity()
+                        .translate(p.cx(), p.cy() + PILE_HALF, p.cz())
+                        .scale(PILE_HALF);
+                buildingShader.setMat4("uModel", model);
+                cubeMesh.render();
+            }
         }
 
         if (ghost != null) {
@@ -168,6 +217,7 @@ public final class Renderer {
     public void dispose() {
         Set<Mesh> unique = new HashSet<>(buildingMeshes.values());
         for (Mesh m : unique) m.dispose();
+        cubeMesh.dispose();
         buildingShader.dispose();
         terrainShader.dispose();
     }

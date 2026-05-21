@@ -1,7 +1,9 @@
 package com.boot.ui;
 
 import com.boot.core.Window;
+import com.boot.economy.BuildingEconomy;
 import com.boot.world.RtsCamera;
+import com.boot.world.SupplyPile;
 import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.ImGuiIO;
@@ -101,6 +103,13 @@ public final class Hud {
             ImGui.sameLine();
             ImGui.text(String.format("%,d", state.cash));
 
+            if (state.cashPerSecond != 0) {
+                ImGui.sameLine();
+                ImGui.pushStyleColor(ImGuiCol.Text, COL_TEXT_DIM);
+                ImGui.text(String.format("(+$%d/s)", state.cashPerSecond));
+                ImGui.popStyleColor();
+            }
+
             ImGui.sameLine();
             ImGui.dummy(22, 0);
             ImGui.sameLine();
@@ -149,6 +158,7 @@ public final class Hud {
             ImGui.dummy(0, 6);
             drawGeneralPowers();
             ImGui.dummy(0, 6);
+            drawMapCashReadout();
             drawMinimapPanel(camera);
         }
         ImGui.end();
@@ -181,15 +191,22 @@ public final class Hud {
         float bw = (UiLayout.SIDEBAR_WIDTH - 16f - pad * (cols - 1)) / cols;
         float bh = 50f;
 
+        boolean structures = state.activeTab == HudState.Tab.STRUCTURES;
+
         for (int i = 0; i < items.length; i++) {
             String name = items[i];
-            ImGui.pushStyleColor(ImGuiCol.Button, 0xFF2A323D);
-            ImGui.pushStyleColor(ImGuiCol.ButtonHovered, 0xFF3A4555);
+            int cost = structures ? BuildingEconomy.cost(name) : 0;
+            boolean affordable = !structures || cost == 0 || state.cash >= cost;
+
+            int btnCol = affordable ? 0xFF2A323D : 0xFF1A1F25;
+            int btnHoverCol = affordable ? 0xFF3A4555 : 0xFF22272E;
+            ImGui.pushStyleColor(ImGuiCol.Button, btnCol);
+            ImGui.pushStyleColor(ImGuiCol.ButtonHovered, btnHoverCol);
             ImGui.pushStyleColor(ImGuiCol.ButtonActive, COL_ACCENT);
             boolean clicked = ImGui.button("##b" + i, bw, bh);
             ImGui.popStyleColor(3);
 
-            if (clicked && state.activeTab == HudState.Tab.STRUCTURES) {
+            if (clicked && structures && affordable) {
                 state.pendingPlacementType = name;
             }
 
@@ -198,13 +215,29 @@ public final class Hud {
             ImDrawList dl = ImGui.getWindowDrawList();
             ImVec2 ts = ImGui.calcTextSize(name);
             float tx = min.x + (max.x - min.x - ts.x) * 0.5f;
-            float ty = min.y + (max.y - min.y - ts.y) * 0.5f;
-            dl.addText(tx, ty, 0xFFE8ECF1, name);
+            float ty = min.y + (max.y - min.y - ts.y) * 0.5f - (cost > 0 ? 6f : 0f);
+            int textCol = affordable ? 0xFFE8ECF1 : 0xFF6A727B;
+            dl.addText(tx, ty, textCol, name);
+
+            if (cost > 0) {
+                String costText = "$" + cost;
+                ImVec2 cs = ImGui.calcTextSize(costText);
+                float cxText = min.x + (max.x - min.x - cs.x) * 0.5f;
+                float cyText = max.y - cs.y - 4f;
+                int costCol = affordable ? COL_CASH : COL_POWER_LOW;
+                dl.addText(cxText, cyText, costCol, costText);
+            }
 
             if (ImGui.isItemHovered()) {
                 ImGui.beginTooltip();
                 ImGui.text(name);
-                ImGui.textDisabled("placeholder");
+                if (cost > 0) {
+                    ImGui.textDisabled("Cost: $" + cost);
+                }
+                int income = BuildingEconomy.income(name);
+                if (income > 0) {
+                    ImGui.textDisabled("Income: +$" + income + "/s");
+                }
                 ImGui.endTooltip();
             }
 
@@ -228,6 +261,12 @@ public final class Hud {
         }
     }
 
+    private void drawMapCashReadout() {
+        ImGui.pushStyleColor(ImGuiCol.Text, COL_TEXT_DIM);
+        ImGui.text(String.format("Map: $%,d", state.mapCashAvailable));
+        ImGui.popStyleColor();
+    }
+
     private void drawMinimapPanel(RtsCamera camera) {
         if (minimap == null) {
             ImGui.textDisabled("(no minimap)");
@@ -242,6 +281,13 @@ public final class Hud {
         ImGui.image(minimap.textureId(), size, size);
 
         float ws = minimap.worldSize();
+
+        for (SupplyPile p : state.supplyPilesView) {
+            float dx = cursor.x + (p.cx() / ws) * size;
+            float dz = cursor.y + (p.cz() / ws) * size;
+            dl.addCircleFilled(dx, dz, 2.5f, 0xFF22CC44);
+        }
+
         float cx = cursor.x + (camera.target().x / ws) * size;
         float cy = cursor.y + (camera.target().z / ws) * size;
         float viewExtent = Math.min(size * 0.5f, (camera.distance() / ws) * size * 0.9f);
