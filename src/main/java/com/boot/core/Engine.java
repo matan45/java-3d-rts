@@ -5,16 +5,24 @@ import com.boot.physics.TerrainCollider;
 import com.boot.render.Renderer;
 import com.boot.render.TerrainMesh;
 import com.boot.ui.Hud;
+import com.boot.ui.HudState;
 import com.boot.ui.Minimap;
 import com.boot.world.Heightmap;
+import com.boot.world.PlacedBuilding;
 import com.boot.world.RtsCamera;
 import org.joml.Vector3f;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.GL_MULTISAMPLE;
 
 public final class Engine {
+
+    private static final float FOOTPRINT_HALF = 3f;
+    private static final float MAX_SLOPE_DELTA = 1.5f;
 
     private Window window;
     private Input input;
@@ -26,6 +34,8 @@ public final class Engine {
     private Minimap minimap;
     private PhysicsWorld physics;
     private TerrainCollider terrainCollider;
+
+    private final List<PlacedBuilding> placedBuildings = new ArrayList<>();
 
     public void run() {
         try {
@@ -79,18 +89,55 @@ public final class Engine {
             camera.update(input, heightmap, window, dt);
             physics.step(dt);
 
-            renderer.render(window, camera, terrainMesh);
+            camera.updateMatrices(window.aspect());
 
             Vector3f hover = renderer.pickTerrain(
                     input.cursorX(), input.cursorY(),
                     window, camera, physics,
                     input.gameWantsMouse());
 
+            HudState state = hud.state();
+            PlacedBuilding ghost = null;
+            boolean ghostValid = false;
+            if (state.pendingPlacementType != null) {
+                ghostValid = isPlacementValid(hover);
+                if (input.isMousePressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+                    state.pendingPlacementType = null;
+                } else if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT) && ghostValid) {
+                    placedBuildings.add(new PlacedBuilding(
+                            state.pendingPlacementType,
+                            hover.x, hover.y, hover.z, FOOTPRINT_HALF));
+                    state.pendingPlacementType = null;
+                } else if (hover != null) {
+                    ghost = new PlacedBuilding(
+                            state.pendingPlacementType,
+                            hover.x, hover.y, hover.z, FOOTPRINT_HALF);
+                }
+            }
+
+            renderer.render(window, camera, terrainMesh, placedBuildings, ghost, ghostValid);
+
             hud.frame(dt, window, camera, hover);
 
             input.endFrame();
             window.swapAndPoll();
         }
+    }
+
+    private boolean isPlacementValid(Vector3f hover) {
+        if (hover == null) return false;
+        float cx = hover.x, cz = hover.z, h = FOOTPRINT_HALF;
+        float a = heightmap.heightAt(cx - h, cz - h);
+        float b = heightmap.heightAt(cx + h, cz - h);
+        float c = heightmap.heightAt(cx - h, cz + h);
+        float d = heightmap.heightAt(cx + h, cz + h);
+        float min = Math.min(Math.min(a, b), Math.min(c, d));
+        float max = Math.max(Math.max(a, b), Math.max(c, d));
+        if (max - min > MAX_SLOPE_DELTA) return false;
+        for (PlacedBuilding p : placedBuildings) {
+            if (p.overlapsXZ(cx, cz, h)) return false;
+        }
+        return true;
     }
 
     private void dispose() {

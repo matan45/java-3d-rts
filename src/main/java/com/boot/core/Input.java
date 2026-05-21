@@ -92,6 +92,11 @@ public final class Input {
         return mouseDown[button] && gameWantsMouse;
     }
 
+    public boolean isMousePressed(int button) {
+        if (button < 0 || button >= mousePressedEdge.length) return false;
+        return mousePressedEdge[button] && gameWantsMouse;
+    }
+
     public double cursorX() { return cursorX; }
     public double cursorY() { return cursorY; }
     public double cursorDx() { return cursorDx; }

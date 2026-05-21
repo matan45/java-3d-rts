@@ -2,18 +2,28 @@ package com.boot.render;
 
 import com.boot.core.Window;
 import com.boot.physics.PhysicsWorld;
+import com.boot.world.PlacedBuilding;
 import com.boot.world.RtsCamera;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+
+import java.util.List;
 
 import static org.lwjgl.opengl.GL11.*;
 
 public final class Renderer {
 
     private final Shader terrainShader;
+    private final Shader buildingShader;
+    private final BuildingMesh buildingMesh;
+
     private final Matrix4f model = new Matrix4f();
     private final Vector3f lightDir = new Vector3f(-0.45f, -0.85f, -0.30f).normalize().negate();
     private final Vector3f ambient = new Vector3f(0.30f, 0.32f, 0.38f);
+
+    private static final float[] BUILDING_TINT  = { 0.78f, 0.74f, 0.65f, 1.00f };
+    private static final float[] GHOST_VALID    = { 0.30f, 1.00f, 0.40f, 0.45f };
+    private static final float[] GHOST_INVALID  = { 1.00f, 0.30f, 0.30f, 0.45f };
 
     private final Vector3f rayOrigin = new Vector3f();
     private final Vector3f rayDir = new Vector3f();
@@ -21,14 +31,16 @@ public final class Renderer {
 
     public Renderer() {
         terrainShader = new Shader("/shaders/terrain.vert", "/shaders/terrain.frag");
+        buildingShader = new Shader("/shaders/building.vert", "/shaders/building.frag");
+        buildingMesh = new BuildingMesh();
     }
 
-    public void render(Window window, RtsCamera camera, TerrainMesh terrain) {
+    public void render(Window window, RtsCamera camera, TerrainMesh terrain,
+                       List<PlacedBuilding> placed,
+                       PlacedBuilding ghost, boolean ghostValid) {
         glViewport(0, 0, window.framebufferWidth(), window.framebufferHeight());
         glClearColor(0.50f, 0.65f, 0.82f, 1f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        camera.updateMatrices(window.aspect());
 
         terrainShader.bind();
         terrainShader.setMat4("uProj", camera.projection());
@@ -38,6 +50,38 @@ public final class Renderer {
         terrainShader.setVec3("uAmbient", ambient);
         terrain.render();
         terrainShader.unbind();
+
+        buildingShader.bind();
+        buildingShader.setMat4("uProj", camera.projection());
+        buildingShader.setMat4("uView", camera.view());
+        buildingShader.setVec3("uLightDir", lightDir);
+        buildingShader.setVec3("uAmbient", ambient);
+
+        buildingShader.setVec4("uTint",
+                BUILDING_TINT[0], BUILDING_TINT[1], BUILDING_TINT[2], BUILDING_TINT[3]);
+        for (PlacedBuilding p : placed) {
+            float s = p.halfSize() * 2f;
+            model.identity().translate(p.cx(), p.cy(), p.cz()).scale(s);
+            buildingShader.setMat4("uModel", model);
+            buildingMesh.render();
+        }
+
+        if (ghost != null) {
+            float[] tint = ghostValid ? GHOST_VALID : GHOST_INVALID;
+            buildingShader.setVec4("uTint", tint[0], tint[1], tint[2], tint[3]);
+            float s = ghost.halfSize() * 2f;
+            model.identity().translate(ghost.cx(), ghost.cy(), ghost.cz()).scale(s);
+            buildingShader.setMat4("uModel", model);
+
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(false);
+            buildingMesh.render();
+            glDepthMask(true);
+            glDisable(GL_BLEND);
+        }
+
+        buildingShader.unbind();
     }
 
     public Vector3f pickTerrain(double cursorX, double cursorY,
@@ -65,6 +109,8 @@ public final class Renderer {
     }
 
     public void dispose() {
+        buildingMesh.dispose();
+        buildingShader.dispose();
         terrainShader.dispose();
     }
 }

@@ -20,6 +20,8 @@ public final class HudState {
 
     public Tab activeTab = Tab.STRUCTURES;
 
+    public String pendingPlacementType;
+
     public boolean hasSelection() { return !selectionName.isEmpty(); }
     public int powerSurplus() { return powerProduced - powerConsumed; }
     public boolean lowPower() { return powerSurplus() < 0; }

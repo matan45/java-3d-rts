@@ -186,8 +186,12 @@ public final class Hud {
             ImGui.pushStyleColor(ImGuiCol.Button, 0xFF2A323D);
             ImGui.pushStyleColor(ImGuiCol.ButtonHovered, 0xFF3A4555);
             ImGui.pushStyleColor(ImGuiCol.ButtonActive, COL_ACCENT);
-            ImGui.button("##b" + i, bw, bh);
+            boolean clicked = ImGui.button("##b" + i, bw, bh);
             ImGui.popStyleColor(3);
+
+            if (clicked && state.activeTab == HudState.Tab.STRUCTURES) {
+                state.pendingPlacementType = name;
+            }
 
             ImVec2 min = ImGui.getItemRectMin();
             ImVec2 max = ImGui.getItemRectMax();
