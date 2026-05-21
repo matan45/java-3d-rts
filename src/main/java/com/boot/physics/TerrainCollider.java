@@ -76,9 +76,12 @@ public final class TerrainCollider {
                 PxShapeFlagEnum.eSCENE_QUERY_SHAPE.value | PxShapeFlagEnum.eSIMULATION_SHAPE.value));
         shape = world.physics().createShape(geom, material, true, shapeFlags);
 
-        PxFilterData filter = new PxFilterData(1, 1, 0, 0);
-        shape.setSimulationFilterData(filter);
-        filter.destroy();
+        PxFilterData simFilter = new PxFilterData(1, 1, 0, 0);
+        shape.setSimulationFilterData(simFilter);
+        simFilter.destroy();
+        PxFilterData queryFilter = new PxFilterData(PhysicsWorld.FILTER_TERRAIN, 0, 0, 0);
+        shape.setQueryFilterData(queryFilter);
+        queryFilter.destroy();
 
         PxTransform pose = new PxTransform(PxIDENTITYEnum.PxIdentity);
         actor = world.physics().createRigidStatic(pose);

@@ -3,6 +3,7 @@ package com.boot.units;
 import com.boot.world.PlacedBuilding;
 import com.boot.world.SupplyPile;
 import org.joml.Vector3f;
+import physx.physics.PxRigidDynamic;
 
 import java.util.ArrayDeque;
 
@@ -21,6 +22,8 @@ public final class Unit {
     public SupplyPile targetPile;
     public PlacedBuilding dropoff;
     public float harvestTimer;
+
+    public PxRigidDynamic body;
 
     public Unit(UnitType type, float x, float y, float z) {
         this.type = type;

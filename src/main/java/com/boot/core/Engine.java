@@ -3,6 +3,7 @@ package com.boot.core;
 import com.boot.ai.NavGrid;
 import com.boot.ai.PathFinder;
 import com.boot.economy.BuildingEconomy;
+import com.boot.physics.BuildingCollider;
 import com.boot.physics.PhysicsWorld;
 import com.boot.physics.TerrainCollider;
 import com.boot.render.NavDebugMesh;
@@ -45,6 +46,7 @@ public final class Engine {
     private Minimap minimap;
     private PhysicsWorld physics;
     private TerrainCollider terrainCollider;
+    private BuildingCollider buildingCollider;
 
     private NavGrid navGrid;
     private PathFinder pathFinder;
@@ -84,13 +86,14 @@ public final class Engine {
 
         physics = new PhysicsWorld();
         terrainCollider = new TerrainCollider(physics, heightmap);
+        buildingCollider = new BuildingCollider(physics);
         physics.step(0.001f);
 
         navGrid = new NavGrid(heightmap, 2.0f, 0.18f * heightmap.maxHeight());
         navGrid.rebuildObstacles(placedBuildings, supplyPiles);
         pathFinder = new PathFinder(navGrid);
         navDebugMesh = new NavDebugMesh(navGrid);
-        unitManager = new UnitManager(navGrid, pathFinder, heightmap);
+        unitManager = new UnitManager(navGrid, pathFinder, heightmap, physics);
 
         camera = new RtsCamera();
         camera.target().set(heightmap.worldSize() * 0.5f, 0f, heightmap.worldSize() * 0.5f);
@@ -178,6 +181,7 @@ public final class Engine {
                             state.pendingPlacementType,
                             hover.x, hover.y, hover.z, FOOTPRINT_HALF);
                     placedBuildings.add(placed);
+                    buildingCollider.addBuilding(placed);
                     navGrid.blockBuilding(placed);
                     navDebugMesh.rebuild(navGrid);
                     state.pendingPlacementType = null;
@@ -388,6 +392,8 @@ public final class Engine {
         if (navDebugMesh != null) navDebugMesh.dispose();
         if (renderer != null) renderer.dispose();
         if (terrainMesh != null) terrainMesh.dispose();
+        if (unitManager != null) unitManager.dispose();
+        if (buildingCollider != null) buildingCollider.dispose();
         if (terrainCollider != null) terrainCollider.dispose();
         if (physics != null) physics.dispose();
         if (input != null) input.dispose();

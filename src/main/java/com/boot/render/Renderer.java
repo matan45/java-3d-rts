@@ -203,7 +203,7 @@ public final class Renderer {
                                 boolean enabled) {
         if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return null;
 
-        return physics.raycast(
+        return physics.raycastTerrain(
                 rayOrigin.x, rayOrigin.y, rayOrigin.z,
                 rayDir.x, rayDir.y, rayDir.z,
                 3000f, pickResult);

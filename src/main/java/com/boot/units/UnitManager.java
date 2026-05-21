@@ -2,6 +2,7 @@ package com.boot.units;
 
 import com.boot.ai.NavGrid;
 import com.boot.ai.PathFinder;
+import com.boot.physics.PhysicsWorld;
 import com.boot.ui.HudState;
 import com.boot.world.Heightmap;
 import com.boot.world.PlacedBuilding;
@@ -18,15 +19,17 @@ public final class UnitManager {
     private final NavGrid grid;
     private final PathFinder pathFinder;
     private final Heightmap heightmap;
+    private final PhysicsWorld physics;
     private final List<Unit> units = new ArrayList<>();
     private final List<Unit> selected = new ArrayList<>();
     private final List<Vector3f> pathScratch = new ArrayList<>();
     private boolean navObstaclesDirty;
 
-    public UnitManager(NavGrid grid, PathFinder pathFinder, Heightmap heightmap) {
+    public UnitManager(NavGrid grid, PathFinder pathFinder, Heightmap heightmap, PhysicsWorld physics) {
         this.grid = grid;
         this.pathFinder = pathFinder;
         this.heightmap = heightmap;
+        this.physics = physics;
     }
 
     public List<Unit> units() { return units; }
@@ -45,8 +48,24 @@ public final class UnitManager {
         Vector3f c = new Vector3f();
         grid.cellCenter(sx, sz, c);
         Unit u = new Unit(type, c.x, c.y, c.z);
+        if (physics != null) {
+            u.body = physics.createKinematicSphere(c.x, c.y + type.radius, c.z, type.radius);
+        }
         units.add(u);
         return u;
+    }
+
+    public void dispose() {
+        if (physics != null) {
+            for (Unit u : units) {
+                if (u.body != null) {
+                    physics.releaseActor(u.body);
+                    u.body = null;
+                }
+            }
+        }
+        units.clear();
+        selected.clear();
     }
 
     public Unit pickUnit(Vector3f rayOrigin, Vector3f rayDir, float maxDist) {
@@ -149,64 +168,8 @@ public final class UnitManager {
         resolveCollisions(buildings);
         for (Unit u : units) {
             u.pos.y = heightmap.heightAt(u.pos.x, u.pos.z);
-        }
-    }
-
-    private static boolean isStatic(Unit u) {
-        return u.state == Unit.State.HARVESTING || u.state == Unit.State.DEPOSITING;
-    }
-
-    private void resolveCollisions(List<PlacedBuilding> buildings) {
-        int n = units.size();
-        for (int i = 0; i < n; i++) {
-            Unit a = units.get(i);
-            for (int j = i + 1; j < n; j++) {
-                Unit b = units.get(j);
-                float dx = b.pos.x - a.pos.x;
-                float dz = b.pos.z - a.pos.z;
-                float minDist = a.type.radius + b.type.radius;
-                float d2 = dx * dx + dz * dz;
-                if (d2 >= minDist * minDist) continue;
-                float d = (float) Math.sqrt(d2);
-                float overlap;
-                float nx, nz;
-                if (d > 1e-4f) {
-                    overlap = minDist - d;
-                    nx = dx / d;
-                    nz = dz / d;
-                } else {
-                    overlap = minDist;
-                    nx = 1f;
-                    nz = 0f;
-                }
-                boolean aStatic = isStatic(a);
-                boolean bStatic = isStatic(b);
-                float aFrac, bFrac;
-                if (aStatic && !bStatic)      { aFrac = 0f;   bFrac = 1f;   }
-                else if (!aStatic && bStatic) { aFrac = 1f;   bFrac = 0f;   }
-                else                          { aFrac = 0.5f; bFrac = 0.5f; }
-                a.pos.x -= nx * overlap * aFrac;
-                a.pos.z -= nz * overlap * aFrac;
-                b.pos.x += nx * overlap * bFrac;
-                b.pos.z += nz * overlap * bFrac;
-            }
-        }
-
-        for (Unit u : units) {
-            for (PlacedBuilding p : buildings) {
-                float h = p.halfSize() + u.type.radius;
-                float dx = u.pos.x - p.cx();
-                float dz = u.pos.z - p.cz();
-                float absDx = Math.abs(dx);
-                float absDz = Math.abs(dz);
-                if (absDx >= h || absDz >= h) continue;
-                float penX = h - absDx;
-                float penZ = h - absDz;
-                if (penX < penZ) {
-                    u.pos.x += (dx >= 0 ? 1f : -1f) * penX;
-                } else {
-                    u.pos.z += (dz >= 0 ? 1f : -1f) * penZ;
-                }
+            if (u.body != null && physics != null) {
+                physics.setKinematicPose(u.body, u.pos.x, u.pos.y + u.type.radius, u.pos.z);
             }
         }
     }
@@ -355,6 +318,65 @@ public final class UnitManager {
             if (d2 < bestD2) { bestD2 = d2; best = p; }
         }
         return best;
+    }
+
+    private static boolean isStatic(Unit u) {
+        return u.state == Unit.State.HARVESTING || u.state == Unit.State.DEPOSITING;
+    }
+
+    private void resolveCollisions(List<PlacedBuilding> buildings) {
+        int n = units.size();
+        for (int i = 0; i < n; i++) {
+            Unit a = units.get(i);
+            for (int j = i + 1; j < n; j++) {
+                Unit b = units.get(j);
+                float dx = b.pos.x - a.pos.x;
+                float dz = b.pos.z - a.pos.z;
+                float minDist = a.type.radius + b.type.radius;
+                float d2 = dx * dx + dz * dz;
+                if (d2 >= minDist * minDist) continue;
+                float d = (float) Math.sqrt(d2);
+                float overlap;
+                float nx, nz;
+                if (d > 1e-4f) {
+                    overlap = minDist - d;
+                    nx = dx / d;
+                    nz = dz / d;
+                } else {
+                    overlap = minDist;
+                    nx = 1f;
+                    nz = 0f;
+                }
+                boolean aStatic = isStatic(a);
+                boolean bStatic = isStatic(b);
+                float aFrac, bFrac;
+                if (aStatic && !bStatic)      { aFrac = 0f;   bFrac = 1f;   }
+                else if (!aStatic && bStatic) { aFrac = 1f;   bFrac = 0f;   }
+                else                          { aFrac = 0.5f; bFrac = 0.5f; }
+                a.pos.x -= nx * overlap * aFrac;
+                a.pos.z -= nz * overlap * aFrac;
+                b.pos.x += nx * overlap * bFrac;
+                b.pos.z += nz * overlap * bFrac;
+            }
+        }
+
+        for (Unit u : units) {
+            for (PlacedBuilding p : buildings) {
+                float h = p.halfSize() + u.type.radius;
+                float dx = u.pos.x - p.cx();
+                float dz = u.pos.z - p.cz();
+                float absDx = Math.abs(dx);
+                float absDz = Math.abs(dz);
+                if (absDx >= h || absDz >= h) continue;
+                float penX = h - absDx;
+                float penZ = h - absDz;
+                if (penX < penZ) {
+                    u.pos.x += (dx >= 0 ? 1f : -1f) * penX;
+                } else {
+                    u.pos.z += (dz >= 0 ? 1f : -1f) * penZ;
+                }
+            }
+        }
     }
 
     private static float intersectAABB(float ox, float oy, float oz,
