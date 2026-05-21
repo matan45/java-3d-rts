@@ -3,6 +3,7 @@ package com.boot.core;
 import com.boot.render.Renderer;
 import com.boot.render.TerrainMesh;
 import com.boot.ui.Hud;
+import com.boot.ui.Minimap;
 import com.boot.world.Heightmap;
 import com.boot.world.RtsCamera;
 import org.joml.Vector3f;
@@ -20,6 +21,7 @@ public final class Engine {
     private RtsCamera camera;
     private Renderer renderer;
     private Hud hud;
+    private Minimap minimap;
 
     public void run() {
         try {
@@ -43,6 +45,8 @@ public final class Engine {
         renderer = new Renderer();
         hud = new Hud();
         hud.init(window.handle());
+        minimap = new Minimap(heightmap);
+        hud.attachMinimap(minimap);
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_MULTISAMPLE);
@@ -73,7 +77,7 @@ public final class Engine {
                     window, camera, heightmap,
                     input.gameWantsMouse());
 
-            hud.frame(dt, camera, hover);
+            hud.frame(dt, window, camera, hover);
 
             input.endFrame();
             window.swapAndPoll();

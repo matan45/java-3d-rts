@@ -43,7 +43,7 @@ public final class RtsCamera {
 
         float forwardX = (float) Math.sin(yaw);
         float forwardZ = (float) Math.cos(yaw);
-        float rightX = (float) Math.cos(yaw);
+        float rightX = -(float) Math.cos(yaw);
         float rightZ = (float) Math.sin(yaw);
 
         float mvX = 0, mvZ = 0;
