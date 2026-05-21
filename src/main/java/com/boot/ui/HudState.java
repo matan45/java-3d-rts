@@ -1,5 +1,6 @@
 package com.boot.ui;
 
+import com.boot.economy.BuildingEconomy;
 import com.boot.world.SupplyPile;
 
 import java.util.List;
@@ -48,22 +49,14 @@ public final class HudState {
             "Strategy Center", "Detention Camp", "Patriot Battery",
             "Black Market",
     };
-    public static final String[] UNITS = {
-            "Dozer", "Ranger", "Missile Defender",
-            "Crusader", "Paladin", "Tomahawk",
-            "Humvee", "Comanche", "Raptor",
-    };
-    public static final String[] UPGRADES = {
-            "Composite Armor", "Capture Building", "Flashbangs",
-            "Drone Armor", "TOW Missile", "Bunker Busters",
-            "Stealth Comanche", "Laser Missiles", "Countermeasures",
-    };
+
+    private static final String[] NONE = new String[0];
 
     public String[] currentTabItems() {
         return switch (activeTab) {
             case STRUCTURES -> STRUCTURES;
-            case UNITS -> UNITS;
-            case UPGRADES -> UPGRADES;
+            case UNITS -> selectionName.isEmpty() ? NONE : BuildingEconomy.unitsFor(selectionName);
+            case UPGRADES -> selectionName.isEmpty() ? NONE : BuildingEconomy.upgradesFor(selectionName);
         };
     }
 }

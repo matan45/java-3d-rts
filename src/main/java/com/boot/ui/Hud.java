@@ -185,18 +185,27 @@ public final class Hud {
     }
 
     private void drawBuildGrid() {
+        HudState.Tab tab = state.activeTab;
         String[] items = state.currentTabItems();
+
+        if (items.length == 0 && tab != HudState.Tab.STRUCTURES) {
+            ImGui.pushStyleColor(ImGuiCol.Text, COL_TEXT_DIM);
+            ImGui.textWrapped(state.selectionName.isEmpty()
+                    ? "(Select a building to train units or buy upgrades)"
+                    : "(" + state.selectionName + " has nothing to produce)");
+            ImGui.popStyleColor();
+            return;
+        }
+
         int cols = 2;
         float pad = 4f;
         float bw = (UiLayout.SIDEBAR_WIDTH - 16f - pad * (cols - 1)) / cols;
         float bh = 50f;
 
-        boolean structures = state.activeTab == HudState.Tab.STRUCTURES;
-
         for (int i = 0; i < items.length; i++) {
             String name = items[i];
-            int cost = structures ? BuildingEconomy.cost(name) : 0;
-            boolean affordable = !structures || cost == 0 || state.cash >= cost;
+            int cost = costForTab(tab, name);
+            boolean affordable = cost == 0 || state.cash >= cost;
 
             int btnCol = affordable ? 0xFF2A323D : 0xFF1A1F25;
             int btnHoverCol = affordable ? 0xFF3A4555 : 0xFF22272E;
@@ -206,8 +215,11 @@ public final class Hud {
             boolean clicked = ImGui.button("##b" + i, bw, bh);
             ImGui.popStyleColor(3);
 
-            if (clicked && structures && affordable) {
-                state.pendingPlacementType = name;
+            if (clicked && affordable) {
+                switch (tab) {
+                    case STRUCTURES -> state.pendingPlacementType = name;
+                    case UNITS, UPGRADES -> state.cash -= cost;
+                }
             }
 
             ImVec2 min = ImGui.getItemRectMin();
@@ -243,6 +255,14 @@ public final class Hud {
 
             if ((i + 1) % cols != 0) ImGui.sameLine(0f, pad);
         }
+    }
+
+    private static int costForTab(HudState.Tab tab, String name) {
+        return switch (tab) {
+            case STRUCTURES -> BuildingEconomy.cost(name);
+            case UNITS -> BuildingEconomy.unitCost(name);
+            case UPGRADES -> BuildingEconomy.upgradeCost(name);
+        };
     }
 
     private void drawGeneralPowers() {
