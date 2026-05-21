@@ -2,6 +2,7 @@ package com.boot.world;
 
 import com.boot.core.Input;
 import com.boot.core.Window;
+import com.boot.ui.UiLayout;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -57,12 +58,16 @@ public final class RtsCamera {
             double cy = input.cursorY();
             int w = window.width();
             int h = window.height();
-            if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
+            float left = 0;
+            float right = w - UiLayout.SIDEBAR_WIDTH;
+            float top = UiLayout.TOP_BAR_HEIGHT;
+            float bottom = h;
+            if (cx >= left && cx < right && cy >= top && cy < bottom) {
                 float epSpeed = edgePanSpeedMul;
-                if (cx < edgePanPx)        { mvX -= rightX * epSpeed;   mvZ -= rightZ * epSpeed; }
-                else if (cx > w - edgePanPx) { mvX += rightX * epSpeed; mvZ += rightZ * epSpeed; }
-                if (cy < edgePanPx)        { mvX += forwardX * epSpeed; mvZ += forwardZ * epSpeed; }
-                else if (cy > h - edgePanPx) { mvX -= forwardX * epSpeed; mvZ -= forwardZ * epSpeed; }
+                if (cx < left + edgePanPx)        { mvX -= rightX * epSpeed;   mvZ -= rightZ * epSpeed; }
+                else if (cx > right - edgePanPx) { mvX += rightX * epSpeed;   mvZ += rightZ * epSpeed; }
+                if (cy < top + edgePanPx)        { mvX += forwardX * epSpeed; mvZ += forwardZ * epSpeed; }
+                else if (cy > bottom - edgePanPx) { mvX -= forwardX * epSpeed; mvZ -= forwardZ * epSpeed; }
             }
         }
 

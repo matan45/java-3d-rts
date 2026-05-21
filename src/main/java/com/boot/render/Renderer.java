@@ -1,7 +1,7 @@
 package com.boot.render;
 
 import com.boot.core.Window;
-import com.boot.world.Heightmap;
+import com.boot.physics.PhysicsWorld;
 import com.boot.world.RtsCamera;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -41,7 +41,7 @@ public final class Renderer {
     }
 
     public Vector3f pickTerrain(double cursorX, double cursorY,
-                                Window window, RtsCamera camera, Heightmap heightmap,
+                                Window window, RtsCamera camera, PhysicsWorld physics,
                                 boolean enabled) {
         if (!enabled) return null;
 
@@ -58,47 +58,10 @@ public final class Renderer {
         int[] viewport = {0, 0, fbw, fbh};
         viewProj.unprojectRay(px, py, viewport, rayOrigin, rayDir);
 
-        return marchTerrain(heightmap);
-    }
-
-    private Vector3f marchTerrain(Heightmap hm) {
-        float maxDist = 2000f;
-        float step = 0.5f;
-        float refineSteps = 8;
-
-        float t = 0f;
-        float prevT = 0f;
-        float prevDelta = sampleDelta(hm, prevT);
-
-        while (t < maxDist) {
-            t += step;
-            float delta = sampleDelta(hm, t);
-
-            if (delta <= 0f && prevDelta > 0f) {
-                float lo = prevT, hi = t;
-                for (int i = 0; i < refineSteps; i++) {
-                    float mid = (lo + hi) * 0.5f;
-                    if (sampleDelta(hm, mid) <= 0f) hi = mid; else lo = mid;
-                }
-                float tHit = (lo + hi) * 0.5f;
-                pickResult.set(rayDir).mul(tHit).add(rayOrigin);
-                pickResult.y = hm.heightAt(pickResult.x, pickResult.z);
-                return pickResult;
-            }
-
-            prevT = t;
-            prevDelta = delta;
-
-            if (t > 50f) step = Math.min(step * 1.05f, 4f);
-        }
-        return null;
-    }
-
-    private float sampleDelta(Heightmap hm, float t) {
-        float x = rayOrigin.x + rayDir.x * t;
-        float y = rayOrigin.y + rayDir.y * t;
-        float z = rayOrigin.z + rayDir.z * t;
-        return y - hm.heightAt(x, z);
+        return physics.raycast(
+                rayOrigin.x, rayOrigin.y, rayOrigin.z,
+                rayDir.x, rayDir.y, rayDir.z,
+                3000f, pickResult);
     }
 
     public void dispose() {

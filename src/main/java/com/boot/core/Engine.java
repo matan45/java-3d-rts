@@ -1,5 +1,7 @@
 package com.boot.core;
 
+import com.boot.physics.PhysicsWorld;
+import com.boot.physics.TerrainCollider;
 import com.boot.render.Renderer;
 import com.boot.render.TerrainMesh;
 import com.boot.ui.Hud;
@@ -22,6 +24,8 @@ public final class Engine {
     private Renderer renderer;
     private Hud hud;
     private Minimap minimap;
+    private PhysicsWorld physics;
+    private TerrainCollider terrainCollider;
 
     public void run() {
         try {
@@ -38,6 +42,10 @@ public final class Engine {
 
         heightmap = new Heightmap(256, 1.0f, 30f, 0xC0FFEEL);
         terrainMesh = new TerrainMesh(heightmap);
+
+        physics = new PhysicsWorld();
+        terrainCollider = new TerrainCollider(physics, heightmap);
+        physics.step(0.001f);
 
         camera = new RtsCamera();
         camera.target().set(heightmap.worldSize() * 0.5f, 0f, heightmap.worldSize() * 0.5f);
@@ -69,12 +77,13 @@ public final class Engine {
             }
 
             camera.update(input, heightmap, window, dt);
+            physics.step(dt);
 
             renderer.render(window, camera, terrainMesh);
 
             Vector3f hover = renderer.pickTerrain(
                     input.cursorX(), input.cursorY(),
-                    window, camera, heightmap,
+                    window, camera, physics,
                     input.gameWantsMouse());
 
             hud.frame(dt, window, camera, hover);
@@ -88,6 +97,8 @@ public final class Engine {
         if (hud != null) hud.dispose();
         if (renderer != null) renderer.dispose();
         if (terrainMesh != null) terrainMesh.dispose();
+        if (terrainCollider != null) terrainCollider.dispose();
+        if (physics != null) physics.dispose();
         if (input != null) input.dispose();
         if (window != null) window.dispose();
     }
