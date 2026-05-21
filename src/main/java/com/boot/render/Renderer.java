@@ -99,7 +99,41 @@ public final class Renderer {
     public Vector3f pickTerrain(double cursorX, double cursorY,
                                 Window window, RtsCamera camera, PhysicsWorld physics,
                                 boolean enabled) {
-        if (!enabled) return null;
+        if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return null;
+
+        return physics.raycast(
+                rayOrigin.x, rayOrigin.y, rayOrigin.z,
+                rayDir.x, rayDir.y, rayDir.z,
+                3000f, pickResult);
+    }
+
+    public int pickBuilding(double cursorX, double cursorY,
+                            Window window, RtsCamera camera,
+                            List<PlacedBuilding> placed, float selectionHeight,
+                            boolean enabled) {
+        if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return -1;
+
+        int bestIdx = -1;
+        float bestT = Float.MAX_VALUE;
+        for (int i = 0; i < placed.size(); i++) {
+            PlacedBuilding p = placed.get(i);
+            float h = p.halfSize();
+            float t = intersectAABB(
+                    rayOrigin.x, rayOrigin.y, rayOrigin.z,
+                    rayDir.x, rayDir.y, rayDir.z,
+                    p.cx() - h, p.cy(), p.cz() - h,
+                    p.cx() + h, p.cy() + selectionHeight, p.cz() + h);
+            if (t >= 0 && t < bestT) {
+                bestT = t;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }
+
+    private boolean buildCursorRay(double cursorX, double cursorY,
+                                   Window window, RtsCamera camera, boolean enabled) {
+        if (!enabled) return false;
 
         int fbw = window.framebufferWidth();
         int fbh = window.framebufferHeight();
@@ -108,16 +142,26 @@ public final class Renderer {
         float px = (float) (cursorX * scaleX);
         float py = (float) (fbh - cursorY * scaleY);
 
-        if (px < 0 || px > fbw || py < 0 || py > fbh) return null;
+        if (px < 0 || px > fbw || py < 0 || py > fbh) return false;
 
         Matrix4f viewProj = new Matrix4f(camera.projection()).mul(camera.view());
         int[] viewport = {0, 0, fbw, fbh};
         viewProj.unprojectRay(px, py, viewport, rayOrigin, rayDir);
+        return true;
+    }
 
-        return physics.raycast(
-                rayOrigin.x, rayOrigin.y, rayOrigin.z,
-                rayDir.x, rayDir.y, rayDir.z,
-                3000f, pickResult);
+    private static float intersectAABB(float ox, float oy, float oz,
+                                       float dx, float dy, float dz,
+                                       float minX, float minY, float minZ,
+                                       float maxX, float maxY, float maxZ) {
+        float invDx = 1f / dx, invDy = 1f / dy, invDz = 1f / dz;
+        float tx1 = (minX - ox) * invDx, tx2 = (maxX - ox) * invDx;
+        float ty1 = (minY - oy) * invDy, ty2 = (maxY - oy) * invDy;
+        float tz1 = (minZ - oz) * invDz, tz2 = (maxZ - oz) * invDz;
+        float tmin = Math.max(Math.max(Math.min(tx1, tx2), Math.min(ty1, ty2)), Math.min(tz1, tz2));
+        float tmax = Math.min(Math.min(Math.max(tx1, tx2), Math.max(ty1, ty2)), Math.max(tz1, tz2));
+        if (tmax < 0 || tmax < tmin) return -1f;
+        return tmin > 0 ? tmin : tmax;
     }
 
     public void dispose() {

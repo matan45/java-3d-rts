@@ -270,8 +270,25 @@ public final class Hud {
             ImGui.text("  " + state.selectionType);
             ImGui.popStyleColor();
 
-            ImGui.sameLine(160f);
-            String[] cmds = { "Move", "Attack", "Stop", "Guard", "Force Fire", "Garrison" };
+            if (state.selectionMaxHp > 0) {
+                ImGui.sameLine();
+                float hpFrac = state.selectionHp / (float) state.selectionMaxHp;
+                int hpColor = hpFrac > 0.5f ? COL_POWER_OK
+                            : hpFrac > 0.25f ? COL_CASH
+                            : COL_POWER_LOW;
+                ImGui.pushStyleColor(ImGuiCol.Text, hpColor);
+                ImGui.text(String.format("   HP %d/%d", state.selectionHp, state.selectionMaxHp));
+                ImGui.popStyleColor();
+            }
+
+            ImGui.sameLine();
+            ImGui.dummy(8, 0);
+            ImGui.sameLine();
+            drawVeterancyChevrons(state.selectionVeterancy);
+
+            String[] cmds = "Structure".equals(state.selectionType)
+                    ? new String[] { "Sell", "Repair", "Rally Point", "Power" }
+                    : new String[] { "Move", "Attack", "Stop", "Guard", "Force Fire", "Garrison" };
             for (int i = 0; i < cmds.length; i++) {
                 ImGui.pushStyleColor(ImGuiCol.Button, 0xFF2A323D);
                 ImGui.pushStyleColor(ImGuiCol.ButtonHovered, 0xFF3A4555);
@@ -283,6 +300,25 @@ public final class Hud {
         ImGui.end();
         ImGui.popStyleVar();
         ImGui.popStyleColor();
+    }
+
+    private void drawVeterancyChevrons(int vet) {
+        ImDrawList dl = ImGui.getWindowDrawList();
+        ImVec2 cursor = ImGui.getCursorScreenPos();
+        float w = 8f, h = 7f, gap = 3f, yOff = 4f;
+        for (int i = 0; i < 3; i++) {
+            float x0 = cursor.x + i * (w + gap);
+            float y0 = cursor.y + yOff;
+            float ax = x0,        ay = y0 + h;
+            float bx = x0 + w / 2, by = y0;
+            float cx = x0 + w,    cy = y0 + h;
+            if (i < vet) {
+                dl.addTriangleFilled(ax, ay, bx, by, cx, cy, COL_CASH);
+            } else {
+                dl.addTriangle(ax, ay, bx, by, cx, cy, 0xFF555560, 1.2f);
+            }
+        }
+        ImGui.dummy(3 * (w + gap), h + yOff);
     }
 
     private void drawDebugOverlay(float winW, float winH, double fps, RtsCamera camera, Vector3f hover) {

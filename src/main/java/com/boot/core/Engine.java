@@ -23,6 +23,8 @@ public final class Engine {
 
     private static final float FOOTPRINT_HALF = 3f;
     private static final float MAX_SLOPE_DELTA = 1.5f;
+    private static final float SELECTION_HEIGHT = 12f;
+    private static final int DEFAULT_HP = 100;
 
     private Window window;
     private Input input;
@@ -112,6 +114,25 @@ public final class Engine {
                     ghost = new PlacedBuilding(
                             state.pendingPlacementType,
                             hover.x, hover.y, hover.z, FOOTPRINT_HALF);
+                }
+            } else if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
+                int idx = renderer.pickBuilding(
+                        input.cursorX(), input.cursorY(),
+                        window, camera, placedBuildings, SELECTION_HEIGHT,
+                        input.gameWantsMouse());
+                if (idx >= 0) {
+                    PlacedBuilding hit = placedBuildings.get(idx);
+                    state.selectionName = hit.name();
+                    state.selectionType = "Structure";
+                    state.selectionHp = DEFAULT_HP;
+                    state.selectionMaxHp = DEFAULT_HP;
+                    state.selectionVeterancy = 0;
+                } else {
+                    state.selectionName = "";
+                    state.selectionType = "";
+                    state.selectionHp = 0;
+                    state.selectionMaxHp = 0;
+                    state.selectionVeterancy = 0;
                 }
             }
 
