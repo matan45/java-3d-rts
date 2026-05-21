@@ -85,6 +85,7 @@ public final class Hud {
         drawSidebar(winW, winH, camera);
         if (state.hasSelection() || state.hasUnitsSelected()) drawCommandBar(winW, winH);
         drawDebugOverlay(winW, winH, fps, camera, hover);
+        if (state.dragActive) drawSelectionDrag();
 
         ImGui.render();
         implGl3.renderDrawData(ImGui.getDrawData());
@@ -426,6 +427,12 @@ public final class Hud {
             }
         }
         ImGui.end();
+    }
+
+    private void drawSelectionDrag() {
+        ImDrawList dl = ImGui.getForegroundDrawList();
+        dl.addRectFilled(state.dragX0, state.dragY0, state.dragX1, state.dragY1, 0x333DA9FC);
+        dl.addRect(state.dragX0, state.dragY0, state.dragX1, state.dragY1, 0xFF3DA9FC, 0f, 0, 1.6f);
     }
 
     public void dispose() {

@@ -33,6 +33,9 @@ public final class HudState {
     public String pendingPlacementType;
     public String pendingUnitProduction;
 
+    public boolean dragActive;
+    public float dragX0, dragY0, dragX1, dragY1;
+
     public int mapCashAvailable = 0;
     public List<SupplyPile> supplyPilesView = List.of();
 

@@ -10,6 +10,7 @@ import com.boot.world.RtsCamera;
 import com.boot.world.SupplyPile;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import org.lwjgl.BufferUtils;
 
 import java.nio.FloatBuffer;
@@ -213,6 +214,23 @@ public final class Renderer {
                          UnitManager unitMgr, boolean enabled) {
         if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return null;
         return unitMgr.pickUnit(rayOrigin, rayDir, 3000f);
+    }
+
+    private final Matrix4f tmpVP = new Matrix4f();
+    private final Vector4f tmpClip = new Vector4f();
+
+    public boolean projectToScreen(float wx, float wy, float wz,
+                                   RtsCamera camera, Window window,
+                                   float[] outXY) {
+        tmpVP.set(camera.projection()).mul(camera.view());
+        tmpClip.set(wx, wy, wz, 1f);
+        tmpVP.transform(tmpClip);
+        if (tmpClip.w <= 0.0001f) return false;
+        float ndcX = tmpClip.x / tmpClip.w;
+        float ndcY = tmpClip.y / tmpClip.w;
+        outXY[0] = (ndcX * 0.5f + 0.5f) * window.width();
+        outXY[1] = (1f - (ndcY * 0.5f + 0.5f)) * window.height();
+        return ndcX >= -1f && ndcX <= 1f && ndcY >= -1f && ndcY <= 1f;
     }
 
     public int pickBuilding(double cursorX, double cursorY,

@@ -54,6 +54,10 @@ public final class Engine {
     private final List<Vector3f> debugPath = new ArrayList<>();
     private Vector3f debugPathStart;
 
+    private boolean lmbDragging;
+    private float dragStartX, dragStartY;
+    private static final float DRAG_THRESHOLD_SQ = 5f * 5f;
+
     private final List<PlacedBuilding> placedBuildings = new ArrayList<>();
     private final List<SupplyPile> supplyPiles = new ArrayList<>();
     private float cashAccumulator = 0f;
@@ -183,54 +187,7 @@ public final class Engine {
                             hover.x, hover.y, hover.z, FOOTPRINT_HALF);
                 }
             } else {
-                if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
-                    boolean shift = input.isKeyPressed(GLFW_KEY_LEFT_SHIFT)
-                            || input.isKeyPressed(GLFW_KEY_RIGHT_SHIFT);
-                    Unit hitUnit = renderer.pickUnit(
-                            input.cursorX(), input.cursorY(),
-                            window, camera, unitManager, input.gameWantsMouse());
-                    if (hitUnit != null) {
-                        clearBuildingSelection(state);
-                        if (shift) {
-                            unitManager.addToSelection(hitUnit);
-                        } else {
-                            unitManager.selectSingle(hitUnit);
-                        }
-                        syncUnitSelection(state);
-                    } else {
-                        int idx = renderer.pickBuilding(
-                                input.cursorX(), input.cursorY(),
-                                window, camera, placedBuildings, SELECTION_HEIGHT,
-                                input.gameWantsMouse());
-                        if (idx >= 0) {
-                            PlacedBuilding hit = placedBuildings.get(idx);
-                            unitManager.deselectAll();
-                            syncUnitSelection(state);
-                            state.selectedBuilding = hit;
-                            state.selectionName = hit.name();
-                            state.selectionType = "Structure";
-                            state.selectionHp = DEFAULT_HP;
-                            state.selectionMaxHp = DEFAULT_HP;
-                            state.selectionVeterancy = 0;
-                        } else if (hover != null) {
-                            unitManager.deselectAll();
-                            syncUnitSelection(state);
-                            clearBuildingSelection(state);
-                        }
-                    }
-                }
-                if (input.isMousePressed(GLFW_MOUSE_BUTTON_RIGHT)
-                        && !unitManager.selected().isEmpty()
-                        && hover != null) {
-                    boolean queue = input.isKeyPressed(GLFW_KEY_LEFT_SHIFT)
-                            || input.isKeyPressed(GLFW_KEY_RIGHT_SHIFT);
-                    SupplyPile pile = pileAt(hover);
-                    if (pile != null && unitManager.anyWorkerSelected()) {
-                        unitManager.issueHarvest(pile, placedBuildings);
-                    } else {
-                        unitManager.issueMove(hover, queue);
-                    }
-                }
+                handleSelectionInput(state, hover);
             }
 
             if (state.pendingUnitProduction != null) {
@@ -254,6 +211,115 @@ public final class Engine {
             input.endFrame();
             window.swapAndPoll();
         }
+    }
+
+    private void handleSelectionInput(HudState state, Vector3f hover) {
+        boolean lmbHeld = input.isMouseHeldAny(GLFW_MOUSE_BUTTON_LEFT);
+        boolean lmbPressed = input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT);
+
+        if (lmbPressed && hover != null) {
+            lmbDragging = true;
+            dragStartX = (float) input.cursorX();
+            dragStartY = (float) input.cursorY();
+            state.dragActive = false;
+        }
+
+        if (lmbDragging && lmbHeld) {
+            float cx = (float) input.cursorX();
+            float cy = (float) input.cursorY();
+            float dx = cx - dragStartX;
+            float dy = cy - dragStartY;
+            if (dx * dx + dy * dy > DRAG_THRESHOLD_SQ) {
+                state.dragActive = true;
+                state.dragX0 = Math.min(dragStartX, cx);
+                state.dragY0 = Math.min(dragStartY, cy);
+                state.dragX1 = Math.max(dragStartX, cx);
+                state.dragY1 = Math.max(dragStartY, cy);
+            }
+        }
+
+        if (lmbDragging && !lmbHeld) {
+            boolean shift = input.isKeyPressed(GLFW_KEY_LEFT_SHIFT)
+                    || input.isKeyPressed(GLFW_KEY_RIGHT_SHIFT);
+            if (state.dragActive) {
+                selectUnitsInRect(state, shift);
+            } else {
+                handleSingleClickSelect(state, hover, shift);
+            }
+            lmbDragging = false;
+            state.dragActive = false;
+        }
+
+        if (!lmbDragging
+                && input.isMousePressed(GLFW_MOUSE_BUTTON_RIGHT)
+                && !unitManager.selected().isEmpty()
+                && hover != null) {
+            boolean queue = input.isKeyPressed(GLFW_KEY_LEFT_SHIFT)
+                    || input.isKeyPressed(GLFW_KEY_RIGHT_SHIFT);
+            SupplyPile pile = pileAt(hover);
+            if (pile != null && unitManager.anyWorkerSelected()) {
+                unitManager.issueHarvest(pile, placedBuildings);
+            } else {
+                unitManager.issueMove(hover, queue);
+            }
+        }
+    }
+
+    private void handleSingleClickSelect(HudState state, Vector3f hover, boolean shift) {
+        Unit hitUnit = renderer.pickUnit(
+                input.cursorX(), input.cursorY(),
+                window, camera, unitManager, input.gameWantsMouse());
+        if (hitUnit != null) {
+            clearBuildingSelection(state);
+            if (shift) {
+                unitManager.addToSelection(hitUnit);
+            } else {
+                unitManager.selectSingle(hitUnit);
+            }
+            syncUnitSelection(state);
+            return;
+        }
+        int idx = renderer.pickBuilding(
+                input.cursorX(), input.cursorY(),
+                window, camera, placedBuildings, SELECTION_HEIGHT,
+                input.gameWantsMouse());
+        if (idx >= 0) {
+            PlacedBuilding hit = placedBuildings.get(idx);
+            unitManager.deselectAll();
+            syncUnitSelection(state);
+            state.selectedBuilding = hit;
+            state.selectionName = hit.name();
+            state.selectionType = "Structure";
+            state.selectionHp = DEFAULT_HP;
+            state.selectionMaxHp = DEFAULT_HP;
+            state.selectionVeterancy = 0;
+            return;
+        }
+        if (hover != null) {
+            unitManager.deselectAll();
+            syncUnitSelection(state);
+            clearBuildingSelection(state);
+        }
+    }
+
+    private final float[] projScratch = new float[2];
+
+    private void selectUnitsInRect(HudState state, boolean shift) {
+        if (!shift) unitManager.deselectAll();
+        for (Unit u : unitManager.units()) {
+            float cx = u.pos.x;
+            float cy = u.pos.y + u.type.height * 0.5f;
+            float cz = u.pos.z;
+            if (!renderer.projectToScreen(cx, cy, cz, camera, window, projScratch)) continue;
+            float sx = projScratch[0];
+            float sy = projScratch[1];
+            if (sx >= state.dragX0 && sx <= state.dragX1
+                    && sy >= state.dragY0 && sy <= state.dragY1) {
+                unitManager.addToSelection(u);
+            }
+        }
+        clearBuildingSelection(state);
+        syncUnitSelection(state);
     }
 
     private static final float PILE_PICK_HALF = 2f;

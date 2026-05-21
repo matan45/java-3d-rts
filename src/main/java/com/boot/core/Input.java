@@ -103,6 +103,11 @@ public final class Input {
         return mouseDown[button] && gameWantsMouse;
     }
 
+    public boolean isMouseHeldAny(int button) {
+        if (button < 0 || button >= mouseDown.length) return false;
+        return mouseDown[button];
+    }
+
     public boolean isMousePressed(int button) {
         if (button < 0 || button >= mousePressedEdge.length) return false;
         return mousePressedEdge[button] && gameWantsMouse;

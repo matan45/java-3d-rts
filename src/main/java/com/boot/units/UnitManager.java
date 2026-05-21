@@ -145,7 +145,69 @@ public final class UnitManager {
             if (u.state == Unit.State.DEPOSITING) {
                 runDepositing(u, piles, buildings, state);
             }
+        }
+        resolveCollisions(buildings);
+        for (Unit u : units) {
             u.pos.y = heightmap.heightAt(u.pos.x, u.pos.z);
+        }
+    }
+
+    private static boolean isStatic(Unit u) {
+        return u.state == Unit.State.HARVESTING || u.state == Unit.State.DEPOSITING;
+    }
+
+    private void resolveCollisions(List<PlacedBuilding> buildings) {
+        int n = units.size();
+        for (int i = 0; i < n; i++) {
+            Unit a = units.get(i);
+            for (int j = i + 1; j < n; j++) {
+                Unit b = units.get(j);
+                float dx = b.pos.x - a.pos.x;
+                float dz = b.pos.z - a.pos.z;
+                float minDist = a.type.radius + b.type.radius;
+                float d2 = dx * dx + dz * dz;
+                if (d2 >= minDist * minDist) continue;
+                float d = (float) Math.sqrt(d2);
+                float overlap;
+                float nx, nz;
+                if (d > 1e-4f) {
+                    overlap = minDist - d;
+                    nx = dx / d;
+                    nz = dz / d;
+                } else {
+                    overlap = minDist;
+                    nx = 1f;
+                    nz = 0f;
+                }
+                boolean aStatic = isStatic(a);
+                boolean bStatic = isStatic(b);
+                float aFrac, bFrac;
+                if (aStatic && !bStatic)      { aFrac = 0f;   bFrac = 1f;   }
+                else if (!aStatic && bStatic) { aFrac = 1f;   bFrac = 0f;   }
+                else                          { aFrac = 0.5f; bFrac = 0.5f; }
+                a.pos.x -= nx * overlap * aFrac;
+                a.pos.z -= nz * overlap * aFrac;
+                b.pos.x += nx * overlap * bFrac;
+                b.pos.z += nz * overlap * bFrac;
+            }
+        }
+
+        for (Unit u : units) {
+            for (PlacedBuilding p : buildings) {
+                float h = p.halfSize() + u.type.radius;
+                float dx = u.pos.x - p.cx();
+                float dz = u.pos.z - p.cz();
+                float absDx = Math.abs(dx);
+                float absDz = Math.abs(dz);
+                if (absDx >= h || absDz >= h) continue;
+                float penX = h - absDx;
+                float penZ = h - absDz;
+                if (penX < penZ) {
+                    u.pos.x += (dx >= 0 ? 1f : -1f) * penX;
+                } else {
+                    u.pos.z += (dz >= 0 ? 1f : -1f) * penZ;
+                }
+            }
         }
     }
 
