@@ -3,6 +3,8 @@ package com.boot.render;
 import com.boot.core.Window;
 import com.boot.physics.PhysicsWorld;
 import com.boot.ui.HudState;
+import com.boot.units.Unit;
+import com.boot.units.UnitManager;
 import com.boot.world.PlacedBuilding;
 import com.boot.world.RtsCamera;
 import com.boot.world.SupplyPile;
@@ -83,7 +85,9 @@ public final class Renderer {
 
     public void render(Window window, RtsCamera camera, TerrainMesh terrain,
                        List<PlacedBuilding> placed, List<SupplyPile> piles,
-                       PlacedBuilding ghost, boolean ghostValid) {
+                       List<Unit> units,
+                       PlacedBuilding ghost, boolean ghostValid,
+                       NavDebugMesh navDebug, List<Vector3f> debugPath) {
         glViewport(0, 0, window.framebufferWidth(), window.framebufferHeight());
         glClearColor(0.50f, 0.65f, 0.82f, 1f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -126,6 +130,30 @@ public final class Renderer {
             }
         }
 
+        if (units != null && !units.isEmpty()) {
+            for (Unit u : units) {
+                buildingShader.setVec4("uTint", u.type.r, u.type.g, u.type.b, 1f);
+                float halfH = u.type.height * 0.5f;
+                model.identity()
+                        .translate(u.pos.x, u.pos.y + halfH, u.pos.z)
+                        .rotateY(u.heading)
+                        .scale(u.type.radius, halfH, u.type.radius);
+                buildingShader.setMat4("uModel", model);
+                cubeMesh.render();
+            }
+            for (Unit u : units) {
+                if (!u.selected) continue;
+                float[] ringColor = selectionRingColor(u.state);
+                buildingShader.setVec4("uTint", ringColor[0], ringColor[1], ringColor[2], 1f);
+                float r = u.type.radius * 1.6f;
+                model.identity()
+                        .translate(u.pos.x, u.pos.y + 0.08f, u.pos.z)
+                        .scale(r, 0.06f, r);
+                buildingShader.setMat4("uModel", model);
+                cubeMesh.render();
+            }
+        }
+
         if (ghost != null) {
             Mesh mesh = buildingMeshes.get(ghost.name());
             if (mesh != null) {
@@ -143,6 +171,29 @@ public final class Renderer {
             }
         }
 
+        if (navDebug != null) {
+            buildingShader.setVec4("uTint", 0.20f, 0.95f, 0.30f, 0.55f);
+            model.identity();
+            buildingShader.setMat4("uModel", model);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(false);
+            navDebug.render();
+            glDepthMask(true);
+            glDisable(GL_BLEND);
+        }
+
+        if (debugPath != null && !debugPath.isEmpty()) {
+            buildingShader.setVec4("uTint", 1.00f, 0.90f, 0.10f, 1f);
+            for (Vector3f wp : debugPath) {
+                model.identity()
+                        .translate(wp.x, wp.y + 0.6f, wp.z)
+                        .scale(0.35f, 0.6f, 0.35f);
+                buildingShader.setMat4("uModel", model);
+                cubeMesh.render();
+            }
+        }
+
         buildingShader.unbind();
     }
 
@@ -155,6 +206,13 @@ public final class Renderer {
                 rayOrigin.x, rayOrigin.y, rayOrigin.z,
                 rayDir.x, rayDir.y, rayDir.z,
                 3000f, pickResult);
+    }
+
+    public Unit pickUnit(double cursorX, double cursorY,
+                         Window window, RtsCamera camera,
+                         UnitManager unitMgr, boolean enabled) {
+        if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return null;
+        return unitMgr.pickUnit(rayOrigin, rayDir, 3000f);
     }
 
     public int pickBuilding(double cursorX, double cursorY,
@@ -198,6 +256,20 @@ public final class Renderer {
         int[] viewport = {0, 0, fbw, fbh};
         viewProj.unprojectRay(px, py, viewport, rayOrigin, rayDir);
         return true;
+    }
+
+    private static final float[] RING_IDLE     = { 0.25f, 0.95f, 1.00f };
+    private static final float[] RING_MOVING   = { 0.30f, 1.00f, 0.40f };
+    private static final float[] RING_HARVEST  = { 1.00f, 0.85f, 0.20f };
+    private static final float[] RING_DEPOSIT  = { 1.00f, 1.00f, 0.50f };
+
+    private static float[] selectionRingColor(Unit.State s) {
+        return switch (s) {
+            case MOVING, MOVING_TO_PILE, MOVING_TO_BASE -> RING_MOVING;
+            case HARVESTING -> RING_HARVEST;
+            case DEPOSITING -> RING_DEPOSIT;
+            default -> RING_IDLE;
+        };
     }
 
     private static float intersectAABB(float ox, float oy, float oz,

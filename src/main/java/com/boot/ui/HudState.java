@@ -1,8 +1,11 @@
 package com.boot.ui;
 
 import com.boot.economy.BuildingEconomy;
+import com.boot.units.Unit;
+import com.boot.world.PlacedBuilding;
 import com.boot.world.SupplyPile;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public final class HudState {
@@ -22,15 +25,19 @@ public final class HudState {
     public int selectionHp;
     public int selectionMaxHp;
     public int selectionVeterancy = 0;
+    public PlacedBuilding selectedBuilding;
+    public final List<Unit> selectedUnits = new ArrayList<>();
 
     public Tab activeTab = Tab.STRUCTURES;
 
     public String pendingPlacementType;
+    public String pendingUnitProduction;
 
     public int mapCashAvailable = 0;
     public List<SupplyPile> supplyPilesView = List.of();
 
     public boolean hasSelection() { return !selectionName.isEmpty(); }
+    public boolean hasUnitsSelected() { return !selectedUnits.isEmpty(); }
     public int powerSurplus() { return powerProduced - powerConsumed; }
     public boolean lowPower() { return powerSurplus() < 0; }
 

@@ -1,13 +1,19 @@
 package com.boot.core;
 
+import com.boot.ai.NavGrid;
+import com.boot.ai.PathFinder;
 import com.boot.economy.BuildingEconomy;
 import com.boot.physics.PhysicsWorld;
 import com.boot.physics.TerrainCollider;
+import com.boot.render.NavDebugMesh;
 import com.boot.render.Renderer;
 import com.boot.render.TerrainMesh;
 import com.boot.ui.Hud;
 import com.boot.ui.HudState;
 import com.boot.ui.Minimap;
+import com.boot.units.Unit;
+import com.boot.units.UnitManager;
+import com.boot.units.UnitType;
 import com.boot.world.Heightmap;
 import com.boot.world.PlacedBuilding;
 import com.boot.world.RtsCamera;
@@ -40,6 +46,14 @@ public final class Engine {
     private PhysicsWorld physics;
     private TerrainCollider terrainCollider;
 
+    private NavGrid navGrid;
+    private PathFinder pathFinder;
+    private NavDebugMesh navDebugMesh;
+    private UnitManager unitManager;
+    private boolean showNavDebug = false;
+    private final List<Vector3f> debugPath = new ArrayList<>();
+    private Vector3f debugPathStart;
+
     private final List<PlacedBuilding> placedBuildings = new ArrayList<>();
     private final List<SupplyPile> supplyPiles = new ArrayList<>();
     private float cashAccumulator = 0f;
@@ -67,6 +81,12 @@ public final class Engine {
         physics = new PhysicsWorld();
         terrainCollider = new TerrainCollider(physics, heightmap);
         physics.step(0.001f);
+
+        navGrid = new NavGrid(heightmap, 2.0f, 0.18f * heightmap.maxHeight());
+        navGrid.rebuildObstacles(placedBuildings, supplyPiles);
+        pathFinder = new PathFinder(navGrid);
+        navDebugMesh = new NavDebugMesh(navGrid);
+        unitManager = new UnitManager(navGrid, pathFinder, heightmap);
 
         camera = new RtsCamera();
         camera.target().set(heightmap.worldSize() * 0.5f, 0f, heightmap.worldSize() * 0.5f);
@@ -113,6 +133,23 @@ public final class Engine {
                     window, camera, physics,
                     input.gameWantsMouse());
 
+            if (input.isKeyJustPressed(GLFW_KEY_F3)) {
+                showNavDebug = !showNavDebug;
+            }
+            if (input.isKeyJustPressed(GLFW_KEY_F4) && hover != null) {
+                if (debugPathStart == null) {
+                    debugPathStart = new Vector3f(hover);
+                    debugPath.clear();
+                } else {
+                    int sx = navGrid.toCellI(debugPathStart.x);
+                    int sz = navGrid.toCellJ(debugPathStart.z);
+                    int gx = navGrid.toCellI(hover.x);
+                    int gz = navGrid.toCellJ(hover.z);
+                    pathFinder.findPathToNearest(sx, sz, gx, gz, 24, debugPath);
+                    debugPathStart = null;
+                }
+            }
+
             HudState state = hud.state();
 
             int incomeRate = 0;
@@ -133,43 +170,134 @@ public final class Engine {
                     state.pendingPlacementType = null;
                 } else if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT) && ghostValid) {
                     state.cash -= BuildingEconomy.cost(state.pendingPlacementType);
-                    placedBuildings.add(new PlacedBuilding(
+                    PlacedBuilding placed = new PlacedBuilding(
                             state.pendingPlacementType,
-                            hover.x, hover.y, hover.z, FOOTPRINT_HALF));
+                            hover.x, hover.y, hover.z, FOOTPRINT_HALF);
+                    placedBuildings.add(placed);
+                    navGrid.blockBuilding(placed);
+                    navDebugMesh.rebuild(navGrid);
                     state.pendingPlacementType = null;
                 } else if (hover != null) {
                     ghost = new PlacedBuilding(
                             state.pendingPlacementType,
                             hover.x, hover.y, hover.z, FOOTPRINT_HALF);
                 }
-            } else if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
-                int idx = renderer.pickBuilding(
-                        input.cursorX(), input.cursorY(),
-                        window, camera, placedBuildings, SELECTION_HEIGHT,
-                        input.gameWantsMouse());
-                if (idx >= 0) {
-                    PlacedBuilding hit = placedBuildings.get(idx);
-                    state.selectionName = hit.name();
-                    state.selectionType = "Structure";
-                    state.selectionHp = DEFAULT_HP;
-                    state.selectionMaxHp = DEFAULT_HP;
-                    state.selectionVeterancy = 0;
-                } else {
-                    state.selectionName = "";
-                    state.selectionType = "";
-                    state.selectionHp = 0;
-                    state.selectionMaxHp = 0;
-                    state.selectionVeterancy = 0;
+            } else {
+                if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
+                    boolean shift = input.isKeyPressed(GLFW_KEY_LEFT_SHIFT)
+                            || input.isKeyPressed(GLFW_KEY_RIGHT_SHIFT);
+                    Unit hitUnit = renderer.pickUnit(
+                            input.cursorX(), input.cursorY(),
+                            window, camera, unitManager, input.gameWantsMouse());
+                    if (hitUnit != null) {
+                        clearBuildingSelection(state);
+                        if (shift) {
+                            unitManager.addToSelection(hitUnit);
+                        } else {
+                            unitManager.selectSingle(hitUnit);
+                        }
+                        syncUnitSelection(state);
+                    } else {
+                        int idx = renderer.pickBuilding(
+                                input.cursorX(), input.cursorY(),
+                                window, camera, placedBuildings, SELECTION_HEIGHT,
+                                input.gameWantsMouse());
+                        if (idx >= 0) {
+                            PlacedBuilding hit = placedBuildings.get(idx);
+                            unitManager.deselectAll();
+                            syncUnitSelection(state);
+                            state.selectedBuilding = hit;
+                            state.selectionName = hit.name();
+                            state.selectionType = "Structure";
+                            state.selectionHp = DEFAULT_HP;
+                            state.selectionMaxHp = DEFAULT_HP;
+                            state.selectionVeterancy = 0;
+                        } else if (hover != null) {
+                            unitManager.deselectAll();
+                            syncUnitSelection(state);
+                            clearBuildingSelection(state);
+                        }
+                    }
+                }
+                if (input.isMousePressed(GLFW_MOUSE_BUTTON_RIGHT)
+                        && !unitManager.selected().isEmpty()
+                        && hover != null) {
+                    boolean queue = input.isKeyPressed(GLFW_KEY_LEFT_SHIFT)
+                            || input.isKeyPressed(GLFW_KEY_RIGHT_SHIFT);
+                    SupplyPile pile = pileAt(hover);
+                    if (pile != null && unitManager.anyWorkerSelected()) {
+                        unitManager.issueHarvest(pile, placedBuildings);
+                    } else {
+                        unitManager.issueMove(hover, queue);
+                    }
                 }
             }
 
-            renderer.render(window, camera, terrainMesh, placedBuildings, supplyPiles, ghost, ghostValid);
+            if (state.pendingUnitProduction != null) {
+                handleUnitProduction(state);
+            }
+
+            unitManager.tick(dt, supplyPiles, placedBuildings, state);
+            if (unitManager.navObstaclesChanged()) {
+                navDebugMesh.rebuild(navGrid);
+                unitManager.clearNavObstaclesChanged();
+            }
+
+            renderer.render(window, camera, terrainMesh, placedBuildings, supplyPiles,
+                    unitManager.units(),
+                    ghost, ghostValid,
+                    showNavDebug ? navDebugMesh : null,
+                    debugPath);
 
             hud.frame(dt, window, camera, hover);
 
             input.endFrame();
             window.swapAndPoll();
         }
+    }
+
+    private static final float PILE_PICK_HALF = 2f;
+
+    private SupplyPile pileAt(Vector3f world) {
+        for (SupplyPile p : supplyPiles) {
+            if (p.depleted()) continue;
+            if (Math.abs(p.cx() - world.x) <= PILE_PICK_HALF
+                    && Math.abs(p.cz() - world.z) <= PILE_PICK_HALF) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private void clearBuildingSelection(HudState state) {
+        state.selectedBuilding = null;
+        state.selectionName = "";
+        state.selectionType = "";
+        state.selectionHp = 0;
+        state.selectionMaxHp = 0;
+        state.selectionVeterancy = 0;
+    }
+
+    private void syncUnitSelection(HudState state) {
+        state.selectedUnits.clear();
+        state.selectedUnits.addAll(unitManager.selected());
+    }
+
+    private void handleUnitProduction(HudState state) {
+        String name = state.pendingUnitProduction;
+        state.pendingUnitProduction = null;
+        UnitType type = UnitType.byName(name);
+        if (type == null) {
+            state.cash += BuildingEconomy.unitCost(name);
+            return;
+        }
+        PlacedBuilding src = state.selectedBuilding;
+        if (src == null) {
+            state.cash += BuildingEconomy.unitCost(name);
+            return;
+        }
+        float offset = src.halfSize() + 2.0f;
+        unitManager.spawn(type, src.cx() + offset, src.cz());
     }
 
     private boolean isPlacementValid(Vector3f hover, HudState state) {
@@ -191,6 +319,7 @@ public final class Engine {
 
     private void dispose() {
         if (hud != null) hud.dispose();
+        if (navDebugMesh != null) navDebugMesh.dispose();
         if (renderer != null) renderer.dispose();
         if (terrainMesh != null) terrainMesh.dispose();
         if (terrainCollider != null) terrainCollider.dispose();

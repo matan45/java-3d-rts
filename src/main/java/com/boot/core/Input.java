@@ -10,6 +10,7 @@ public final class Input {
     private final long window;
 
     private final boolean[] keys = new boolean[GLFW_KEY_LAST + 1];
+    private final boolean[] keyPressedEdge = new boolean[GLFW_KEY_LAST + 1];
     private final boolean[] mouseDown = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
     private final boolean[] mousePressedEdge = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
 
@@ -26,8 +27,12 @@ public final class Input {
 
         glfwSetKeyCallback(window, (win, key, sc, action, mods) -> {
             if (key < 0 || key >= keys.length) return;
-            if (action == GLFW_PRESS) keys[key] = true;
-            else if (action == GLFW_RELEASE) keys[key] = false;
+            if (action == GLFW_PRESS) {
+                if (!keys[key]) keyPressedEdge[key] = true;
+                keys[key] = true;
+            } else if (action == GLFW_RELEASE) {
+                keys[key] = false;
+            }
         });
 
         glfwSetMouseButtonCallback(window, (win, button, action, mods) -> {
@@ -75,6 +80,7 @@ public final class Input {
     public void endFrame() {
         scrollAccum = 0;
         for (int i = 0; i < mousePressedEdge.length; i++) mousePressedEdge[i] = false;
+        for (int i = 0; i < keyPressedEdge.length; i++) keyPressedEdge[i] = false;
     }
 
     public boolean isKeyDown(int key) {
@@ -85,6 +91,11 @@ public final class Input {
     public boolean isKeyPressed(int key) {
         if (key < 0 || key >= keys.length) return false;
         return keys[key];
+    }
+
+    public boolean isKeyJustPressed(int key) {
+        if (key < 0 || key >= keyPressedEdge.length) return false;
+        return keyPressedEdge[key] && gameWantsKeyboard;
     }
 
     public boolean isMouseDown(int button) {

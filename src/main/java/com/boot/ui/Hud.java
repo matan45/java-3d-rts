@@ -83,7 +83,7 @@ public final class Hud {
 
         drawTopBar(winW);
         drawSidebar(winW, winH, camera);
-        if (state.hasSelection()) drawCommandBar(winW, winH);
+        if (state.hasSelection() || state.hasUnitsSelected()) drawCommandBar(winW, winH);
         drawDebugOverlay(winW, winH, fps, camera, hover);
 
         ImGui.render();
@@ -218,7 +218,11 @@ public final class Hud {
             if (clicked && affordable) {
                 switch (tab) {
                     case STRUCTURES -> state.pendingPlacementType = name;
-                    case UNITS, UPGRADES -> state.cash -= cost;
+                    case UNITS -> {
+                        state.cash -= cost;
+                        state.pendingUnitProduction = name;
+                    }
+                    case UPGRADES -> state.cash -= cost;
                 }
             }
 
@@ -330,37 +334,55 @@ public final class Hud {
         ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 10f, 6f);
 
         if (ImGui.begin("##commandbar", PANEL_FLAGS)) {
-            ImGui.text(state.selectionName);
-            ImGui.sameLine();
-            ImGui.pushStyleColor(ImGuiCol.Text, COL_TEXT_DIM);
-            ImGui.text("  " + state.selectionType);
-            ImGui.popStyleColor();
-
-            if (state.selectionMaxHp > 0) {
+            if (state.hasUnitsSelected()) {
+                int n = state.selectedUnits.size();
+                String title = n == 1
+                        ? state.selectedUnits.get(0).type.label
+                        : n + " units selected";
+                ImGui.text(title);
                 ImGui.sameLine();
-                float hpFrac = state.selectionHp / (float) state.selectionMaxHp;
-                int hpColor = hpFrac > 0.5f ? COL_POWER_OK
-                            : hpFrac > 0.25f ? COL_CASH
-                            : COL_POWER_LOW;
-                ImGui.pushStyleColor(ImGuiCol.Text, hpColor);
-                ImGui.text(String.format("   HP %d/%d", state.selectionHp, state.selectionMaxHp));
+                ImGui.dummy(12, 0);
+                ImGui.sameLine();
+
+                String[] cmds = { "Move", "Attack", "Stop", "Guard", "Force Fire", "Garrison" };
+                for (int i = 0; i < cmds.length; i++) {
+                    ImGui.pushStyleColor(ImGuiCol.Button, 0xFF2A323D);
+                    ImGui.pushStyleColor(ImGuiCol.ButtonHovered, 0xFF3A4555);
+                    ImGui.button(cmds[i], 72, 36);
+                    ImGui.popStyleColor(2);
+                    if (i < cmds.length - 1) ImGui.sameLine();
+                }
+            } else {
+                ImGui.text(state.selectionName);
+                ImGui.sameLine();
+                ImGui.pushStyleColor(ImGuiCol.Text, COL_TEXT_DIM);
+                ImGui.text("  " + state.selectionType);
                 ImGui.popStyleColor();
-            }
 
-            ImGui.sameLine();
-            ImGui.dummy(8, 0);
-            ImGui.sameLine();
-            drawVeterancyChevrons(state.selectionVeterancy);
+                if (state.selectionMaxHp > 0) {
+                    ImGui.sameLine();
+                    float hpFrac = state.selectionHp / (float) state.selectionMaxHp;
+                    int hpColor = hpFrac > 0.5f ? COL_POWER_OK
+                                : hpFrac > 0.25f ? COL_CASH
+                                : COL_POWER_LOW;
+                    ImGui.pushStyleColor(ImGuiCol.Text, hpColor);
+                    ImGui.text(String.format("   HP %d/%d", state.selectionHp, state.selectionMaxHp));
+                    ImGui.popStyleColor();
+                }
 
-            String[] cmds = "Structure".equals(state.selectionType)
-                    ? new String[] { "Sell", "Repair", "Rally Point", "Power" }
-                    : new String[] { "Move", "Attack", "Stop", "Guard", "Force Fire", "Garrison" };
-            for (int i = 0; i < cmds.length; i++) {
-                ImGui.pushStyleColor(ImGuiCol.Button, 0xFF2A323D);
-                ImGui.pushStyleColor(ImGuiCol.ButtonHovered, 0xFF3A4555);
-                ImGui.button(cmds[i], 72, 36);
-                ImGui.popStyleColor(2);
-                if (i < cmds.length - 1) ImGui.sameLine();
+                ImGui.sameLine();
+                ImGui.dummy(8, 0);
+                ImGui.sameLine();
+                drawVeterancyChevrons(state.selectionVeterancy);
+
+                String[] cmds = { "Sell", "Repair", "Rally Point", "Power" };
+                for (int i = 0; i < cmds.length; i++) {
+                    ImGui.pushStyleColor(ImGuiCol.Button, 0xFF2A323D);
+                    ImGui.pushStyleColor(ImGuiCol.ButtonHovered, 0xFF3A4555);
+                    ImGui.button(cmds[i], 72, 36);
+                    ImGui.popStyleColor(2);
+                    if (i < cmds.length - 1) ImGui.sameLine();
+                }
             }
         }
         ImGui.end();
