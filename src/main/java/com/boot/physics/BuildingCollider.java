@@ -1,6 +1,6 @@
 package com.boot.physics;
 
-import com.boot.world.PlacedBuilding;
+import dev.dominion.ecs.api.Entity;
 import physx.physics.PxRigidStatic;
 
 import java.util.HashMap;
@@ -11,24 +11,23 @@ public final class BuildingCollider {
     private static final float BUILDING_HALF_HEIGHT = 6f;
 
     private final PhysicsWorld world;
-    private final Map<PlacedBuilding, PxRigidStatic> actors = new HashMap<>();
+    private final Map<Entity, PxRigidStatic> actors = new HashMap<>();
 
     public BuildingCollider(PhysicsWorld world) {
         this.world = world;
     }
 
-    public void addBuilding(PlacedBuilding b) {
-        if (actors.containsKey(b)) return;
-        float h = b.halfSize();
+    public void addBuilding(Entity entity, float cx, float cy, float cz, float halfSize) {
+        if (actors.containsKey(entity)) return;
         PxRigidStatic actor = world.createStaticBox(
-                b.cx(), b.cy() + BUILDING_HALF_HEIGHT, b.cz(),
-                h, BUILDING_HALF_HEIGHT, h,
+                cx, cy + BUILDING_HALF_HEIGHT, cz,
+                halfSize, BUILDING_HALF_HEIGHT, halfSize,
                 PhysicsWorld.FILTER_BUILDING);
-        actors.put(b, actor);
+        actors.put(entity, actor);
     }
 
-    public void removeBuilding(PlacedBuilding b) {
-        PxRigidStatic actor = actors.remove(b);
+    public void removeBuilding(Entity entity) {
+        PxRigidStatic actor = actors.remove(entity);
         if (actor != null) world.releaseActor(actor);
     }
 

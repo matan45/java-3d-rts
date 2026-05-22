@@ -1,13 +1,20 @@
 package com.boot.render;
 
 import com.boot.core.Window;
+import com.boot.ecs.EcsWorld;
+import com.boot.ecs.components.BuildingType;
+import com.boot.ecs.components.MovementState;
+import com.boot.ecs.components.PathFollower;
+import com.boot.ecs.components.Selectable;
+import com.boot.ecs.components.SupplyCash;
+import com.boot.ecs.components.Transform;
+import com.boot.ecs.components.UnitKind;
+import com.boot.ecs.systems.SelectionSystem;
 import com.boot.physics.PhysicsWorld;
 import com.boot.ui.HudState;
-import com.boot.units.Unit;
-import com.boot.units.UnitManager;
-import com.boot.world.PlacedBuilding;
+import com.boot.world.BuildingGhost;
 import com.boot.world.RtsCamera;
-import com.boot.world.SupplyPile;
+import dev.dominion.ecs.api.Entity;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
@@ -85,9 +92,8 @@ public final class Renderer {
     }
 
     public void render(Window window, RtsCamera camera, TerrainMesh terrain,
-                       List<PlacedBuilding> placed, List<SupplyPile> piles,
-                       List<Unit> units,
-                       PlacedBuilding ghost, boolean ghostValid,
+                       EcsWorld ecs,
+                       BuildingGhost ghost, boolean ghostValid,
                        NavDebugMesh navDebug, List<Vector3f> debugPath) {
         glViewport(0, 0, window.framebufferWidth(), window.framebufferHeight());
         glClearColor(0.50f, 0.65f, 0.82f, 1f);
@@ -111,49 +117,55 @@ public final class Renderer {
 
         buildingShader.setVec4("uTint",
                 BUILDING_TINT[0], BUILDING_TINT[1], BUILDING_TINT[2], BUILDING_TINT[3]);
-        for (PlacedBuilding p : placed) {
-            Mesh mesh = buildingMeshes.get(p.name());
-            if (mesh == null) continue;
-            model.identity().translate(p.cx(), p.cy(), p.cz());
-            buildingShader.setMat4("uModel", model);
-            mesh.render();
-        }
+        ecs.dominion().findEntitiesWith(Transform.class, BuildingType.class)
+                .stream().forEach(r -> {
+                    Mesh mesh = buildingMeshes.get(r.comp2().name());
+                    if (mesh == null) return;
+                    Vector3f p = r.comp1().pos;
+                    model.identity().translate(p.x, p.y, p.z);
+                    buildingShader.setMat4("uModel", model);
+                    mesh.render();
+                });
 
-        if (piles != null && !piles.isEmpty()) {
-            buildingShader.setVec4("uTint",
-                    SUPPLY_TINT[0], SUPPLY_TINT[1], SUPPLY_TINT[2], SUPPLY_TINT[3]);
-            for (SupplyPile p : piles) {
-                model.identity()
-                        .translate(p.cx(), p.cy() + PILE_HALF, p.cz())
-                        .scale(PILE_HALF);
-                buildingShader.setMat4("uModel", model);
-                cubeMesh.render();
-            }
-        }
+        buildingShader.setVec4("uTint",
+                SUPPLY_TINT[0], SUPPLY_TINT[1], SUPPLY_TINT[2], SUPPLY_TINT[3]);
+        ecs.dominion().findEntitiesWith(Transform.class, SupplyCash.class)
+                .stream().forEach(r -> {
+                    Vector3f p = r.comp1().pos;
+                    model.identity()
+                            .translate(p.x, p.y + PILE_HALF, p.z)
+                            .scale(PILE_HALF);
+                    buildingShader.setMat4("uModel", model);
+                    cubeMesh.render();
+                });
 
-        if (units != null && !units.isEmpty()) {
-            for (Unit u : units) {
-                buildingShader.setVec4("uTint", u.type.r, u.type.g, u.type.b, 1f);
-                float halfH = u.type.height * 0.5f;
-                model.identity()
-                        .translate(u.pos.x, u.pos.y + halfH, u.pos.z)
-                        .rotateY(u.heading)
-                        .scale(u.type.radius, halfH, u.type.radius);
-                buildingShader.setMat4("uModel", model);
-                cubeMesh.render();
-            }
-            for (Unit u : units) {
-                if (!u.selected) continue;
-                float[] ringColor = selectionRingColor(u.state);
-                buildingShader.setVec4("uTint", ringColor[0], ringColor[1], ringColor[2], 1f);
-                float r = u.type.radius * 1.6f;
-                model.identity()
-                        .translate(u.pos.x, u.pos.y + 0.08f, u.pos.z)
-                        .scale(r, 0.06f, r);
-                buildingShader.setMat4("uModel", model);
-                cubeMesh.render();
-            }
-        }
+        ecs.dominion().findEntitiesWith(Transform.class, UnitKind.class)
+                .stream().forEach(r -> {
+                    Transform t = r.comp1();
+                    UnitKind k = r.comp2();
+                    buildingShader.setVec4("uTint", k.type().r, k.type().g, k.type().b, 1f);
+                    float halfH = k.type().height * 0.5f;
+                    model.identity()
+                            .translate(t.pos.x, t.pos.y + halfH, t.pos.z)
+                            .rotateY(t.heading)
+                            .scale(k.type().radius, halfH, k.type().radius);
+                    buildingShader.setMat4("uModel", model);
+                    cubeMesh.render();
+                });
+        ecs.dominion().findEntitiesWith(Transform.class, UnitKind.class, Selectable.class, PathFollower.class)
+                .stream().forEach(r -> {
+                    if (!r.comp3().selected) return;
+                    Transform t = r.comp1();
+                    UnitKind k = r.comp2();
+                    float[] ringColor = selectionRingColor(r.comp4().state);
+                    buildingShader.setVec4("uTint", ringColor[0], ringColor[1], ringColor[2], 1f);
+                    float rad = k.type().radius * 1.6f;
+                    model.identity()
+                            .translate(t.pos.x, t.pos.y + 0.08f, t.pos.z)
+                            .scale(rad, 0.06f, rad);
+                    buildingShader.setMat4("uModel", model);
+                    cubeMesh.render();
+                });
 
         if (ghost != null) {
             Mesh mesh = buildingMeshes.get(ghost.name());
@@ -209,11 +221,11 @@ public final class Renderer {
                 3000f, pickResult);
     }
 
-    public Unit pickUnit(double cursorX, double cursorY,
-                         Window window, RtsCamera camera,
-                         UnitManager unitMgr, boolean enabled) {
+    public Entity pickUnit(double cursorX, double cursorY,
+                           Window window, RtsCamera camera,
+                           EcsWorld ecs, SelectionSystem selection, boolean enabled) {
         if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return null;
-        return unitMgr.pickUnit(rayOrigin, rayDir, 3000f);
+        return selection.pickUnit(ecs, rayOrigin, rayDir, 3000f);
     }
 
     private final Matrix4f tmpVP = new Matrix4f();
@@ -233,28 +245,29 @@ public final class Renderer {
         return ndcX >= -1f && ndcX <= 1f && ndcY >= -1f && ndcY <= 1f;
     }
 
-    public int pickBuilding(double cursorX, double cursorY,
-                            Window window, RtsCamera camera,
-                            List<PlacedBuilding> placed, float selectionHeight,
-                            boolean enabled) {
-        if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return -1;
+    public Entity pickBuilding(double cursorX, double cursorY,
+                               Window window, RtsCamera camera,
+                               EcsWorld ecs, float selectionHeight,
+                               boolean enabled) {
+        if (!buildCursorRay(cursorX, cursorY, window, camera, enabled)) return null;
 
-        int bestIdx = -1;
-        float bestT = Float.MAX_VALUE;
-        for (int i = 0; i < placed.size(); i++) {
-            PlacedBuilding p = placed.get(i);
-            float h = p.halfSize();
-            float t = intersectAABB(
-                    rayOrigin.x, rayOrigin.y, rayOrigin.z,
-                    rayDir.x, rayDir.y, rayDir.z,
-                    p.cx() - h, p.cy(), p.cz() - h,
-                    p.cx() + h, p.cy() + selectionHeight, p.cz() + h);
-            if (t >= 0 && t < bestT) {
-                bestT = t;
-                bestIdx = i;
-            }
-        }
-        return bestIdx;
+        Entity[] best = { null };
+        float[] bestT = { Float.MAX_VALUE };
+        ecs.dominion().findEntitiesWith(Transform.class, BuildingType.class)
+                .stream().forEach(r -> {
+                    Vector3f p = r.comp1().pos;
+                    float h = r.comp2().halfSize();
+                    float t = intersectAABB(
+                            rayOrigin.x, rayOrigin.y, rayOrigin.z,
+                            rayDir.x, rayDir.y, rayDir.z,
+                            p.x - h, p.y, p.z - h,
+                            p.x + h, p.y + selectionHeight, p.z + h);
+                    if (t >= 0 && t < bestT[0]) {
+                        bestT[0] = t;
+                        best[0] = r.entity();
+                    }
+                });
+        return best[0];
     }
 
     private boolean buildCursorRay(double cursorX, double cursorY,
@@ -281,7 +294,7 @@ public final class Renderer {
     private static final float[] RING_HARVEST  = { 1.00f, 0.85f, 0.20f };
     private static final float[] RING_DEPOSIT  = { 1.00f, 1.00f, 0.50f };
 
-    private static float[] selectionRingColor(Unit.State s) {
+    private static float[] selectionRingColor(MovementState s) {
         return switch (s) {
             case MOVING, MOVING_TO_PILE, MOVING_TO_BASE -> RING_MOVING;
             case HARVESTING -> RING_HARVEST;

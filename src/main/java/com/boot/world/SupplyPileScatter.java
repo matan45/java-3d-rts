@@ -1,5 +1,7 @@
 package com.boot.world;
 
+import com.boot.ecs.EcsWorld;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -16,17 +18,17 @@ public final class SupplyPileScatter {
 
     private SupplyPileScatter() {}
 
-    public static List<SupplyPile> scatter(Heightmap hm, long seed) {
+    public static void scatter(Heightmap hm, long seed, EcsWorld ecs) {
         Random rng = new Random(seed ^ SALT);
-        List<SupplyPile> piles = new ArrayList<>();
+        List<float[]> accepted = new ArrayList<>();
 
         float world = hm.worldSize();
         float lo = EDGE_MARGIN;
         float hi = world - EDGE_MARGIN;
-        if (hi <= lo) return piles;
+        if (hi <= lo) return;
 
         int attempts = 0;
-        while (piles.size() < TARGET_COUNT && attempts < MAX_ATTEMPTS) {
+        while (accepted.size() < TARGET_COUNT && attempts < MAX_ATTEMPTS) {
             attempts++;
             float cx = lo + rng.nextFloat() * (hi - lo);
             float cz = lo + rng.nextFloat() * (hi - lo);
@@ -40,9 +42,9 @@ public final class SupplyPileScatter {
             if (max - min > MAX_SLOPE_DELTA) continue;
 
             boolean tooClose = false;
-            for (SupplyPile p : piles) {
-                float dx = p.cx() - cx;
-                float dz = p.cz() - cz;
+            for (float[] xz : accepted) {
+                float dx = xz[0] - cx;
+                float dz = xz[1] - cz;
                 if (dx * dx + dz * dz < MIN_SPACING * MIN_SPACING) {
                     tooClose = true;
                     break;
@@ -52,9 +54,8 @@ public final class SupplyPileScatter {
 
             int cash = 1500 + rng.nextInt(21) * 100;
             float cy = hm.heightAt(cx, cz);
-            piles.add(new SupplyPile(cx, cy, cz, cash));
+            ecs.spawnPile(cx, cy, cz, cash);
+            accepted.add(new float[] { cx, cz });
         }
-
-        return piles;
     }
 }

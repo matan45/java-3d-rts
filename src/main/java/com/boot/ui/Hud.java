@@ -1,9 +1,12 @@
 package com.boot.ui;
 
 import com.boot.core.Window;
+import com.boot.ecs.EcsWorld;
+import com.boot.ecs.components.SupplyCash;
+import com.boot.ecs.components.Transform;
+import com.boot.ecs.components.UnitKind;
 import com.boot.economy.BuildingEconomy;
 import com.boot.world.RtsCamera;
-import com.boot.world.SupplyPile;
 import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.ImGuiIO;
@@ -23,6 +26,7 @@ public final class Hud {
 
     private final HudState state = new HudState();
     private Minimap minimap;
+    private EcsWorld ecs;
 
     private double frameMsEma = 16.0;
 
@@ -63,6 +67,10 @@ public final class Hud {
 
     public void attachMinimap(Minimap minimap) {
         this.minimap = minimap;
+    }
+
+    public void attachEcs(EcsWorld ecs) {
+        this.ecs = ecs;
     }
 
     public HudState state() { return state; }
@@ -307,10 +315,14 @@ public final class Hud {
 
         float ws = minimap.worldSize();
 
-        for (SupplyPile p : state.supplyPilesView) {
-            float dx = cursor.x + (p.cx() / ws) * size;
-            float dz = cursor.y + (p.cz() / ws) * size;
-            dl.addCircleFilled(dx, dz, 2.5f, 0xFF22CC44);
+        if (ecs != null) {
+            ecs.dominion().findEntitiesWith(Transform.class, SupplyCash.class)
+                    .stream().forEach(r -> {
+                        Transform tt = r.comp1();
+                        float dx = cursor.x + (tt.pos.x / ws) * size;
+                        float dz = cursor.y + (tt.pos.z / ws) * size;
+                        dl.addCircleFilled(dx, dz, 2.5f, 0xFF22CC44);
+                    });
         }
 
         float cx = cursor.x + (camera.target().x / ws) * size;
@@ -338,7 +350,7 @@ public final class Hud {
             if (state.hasUnitsSelected()) {
                 int n = state.selectedUnits.size();
                 String title = n == 1
-                        ? state.selectedUnits.get(0).type.label
+                        ? state.selectedUnits.get(0).get(UnitKind.class).type().label
                         : n + " units selected";
                 ImGui.text(title);
                 ImGui.sameLine();

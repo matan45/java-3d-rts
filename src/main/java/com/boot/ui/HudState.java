@@ -1,9 +1,7 @@
 package com.boot.ui;
 
 import com.boot.economy.BuildingEconomy;
-import com.boot.units.Unit;
-import com.boot.world.PlacedBuilding;
-import com.boot.world.SupplyPile;
+import dev.dominion.ecs.api.Entity;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,8 +23,8 @@ public final class HudState {
     public int selectionHp;
     public int selectionMaxHp;
     public int selectionVeterancy = 0;
-    public PlacedBuilding selectedBuilding;
-    public final List<Unit> selectedUnits = new ArrayList<>();
+    public Entity selectedBuilding;
+    public final List<Entity> selectedUnits = new ArrayList<>();
 
     public Tab activeTab = Tab.STRUCTURES;
 
@@ -37,7 +35,6 @@ public final class HudState {
     public float dragX0, dragY0, dragX1, dragY1;
 
     public int mapCashAvailable = 0;
-    public List<SupplyPile> supplyPilesView = List.of();
 
     public boolean hasSelection() { return !selectionName.isEmpty(); }
     public boolean hasUnitsSelected() { return !selectedUnits.isEmpty(); }

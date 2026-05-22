@@ -2,6 +2,22 @@ package com.boot.core;
 
 import com.boot.ai.NavGrid;
 import com.boot.ai.PathFinder;
+import com.boot.ecs.EcsWorld;
+import com.boot.ecs.components.BuildingType;
+import com.boot.ecs.components.HealthState;
+import com.boot.ecs.components.SupplyCash;
+import com.boot.ecs.components.Transform;
+import com.boot.ecs.components.UnitKind;
+import com.boot.ecs.systems.CollisionSystem;
+import com.boot.ecs.systems.DepositSystem;
+import com.boot.ecs.systems.HarvestSystem;
+import com.boot.ecs.systems.IncomeSystem;
+import com.boot.ecs.systems.NavObstacleSync;
+import com.boot.ecs.systems.PathFollowSystem;
+import com.boot.ecs.systems.PhysxSyncSystem;
+import com.boot.ecs.systems.SelectionSystem;
+import com.boot.ecs.systems.TerrainStickSystem;
+import com.boot.ecs.systems.UnitSpawnSystem;
 import com.boot.economy.BuildingEconomy;
 import com.boot.physics.BuildingCollider;
 import com.boot.physics.PhysicsWorld;
@@ -12,14 +28,12 @@ import com.boot.render.TerrainMesh;
 import com.boot.ui.Hud;
 import com.boot.ui.HudState;
 import com.boot.ui.Minimap;
-import com.boot.units.Unit;
-import com.boot.units.UnitManager;
 import com.boot.units.UnitType;
+import com.boot.world.BuildingGhost;
 import com.boot.world.Heightmap;
-import com.boot.world.PlacedBuilding;
 import com.boot.world.RtsCamera;
-import com.boot.world.SupplyPile;
 import com.boot.world.SupplyPileScatter;
+import dev.dominion.ecs.api.Entity;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
@@ -35,6 +49,7 @@ public final class Engine {
     private static final float MAX_SLOPE_DELTA = 1.5f;
     private static final float SELECTION_HEIGHT = 12f;
     private static final int DEFAULT_HP = 100;
+    private static final float PILE_PICK_HALF = 2f;
 
     private Window window;
     private Input input;
@@ -47,11 +62,11 @@ public final class Engine {
     private PhysicsWorld physics;
     private TerrainCollider terrainCollider;
     private BuildingCollider buildingCollider;
+    private EcsWorld ecs;
 
     private NavGrid navGrid;
     private PathFinder pathFinder;
     private NavDebugMesh navDebugMesh;
-    private UnitManager unitManager;
     private boolean showNavDebug = false;
     private final List<Vector3f> debugPath = new ArrayList<>();
     private Vector3f debugPathStart;
@@ -60,9 +75,11 @@ public final class Engine {
     private float dragStartX, dragStartY;
     private static final float DRAG_THRESHOLD_SQ = 5f * 5f;
 
-    private final List<PlacedBuilding> placedBuildings = new ArrayList<>();
-    private final List<SupplyPile> supplyPiles = new ArrayList<>();
     private float cashAccumulator = 0f;
+
+    private final SelectionSystem selectionSystem = new SelectionSystem();
+    private final HarvestSystem harvestSystem = new HarvestSystem();
+    private final DepositSystem depositSystem = new DepositSystem();
 
     private static final long WORLD_SEED = 0xC0FFEEL;
 
@@ -82,18 +99,19 @@ public final class Engine {
         heightmap = new Heightmap(256, 1.0f, 30f, WORLD_SEED);
         terrainMesh = new TerrainMesh(heightmap);
 
-        supplyPiles.addAll(SupplyPileScatter.scatter(heightmap, WORLD_SEED));
+        ecs = new EcsWorld();
+        SupplyPileScatter.scatter(heightmap, WORLD_SEED, ecs);
 
         physics = new PhysicsWorld();
         terrainCollider = new TerrainCollider(physics, heightmap);
         buildingCollider = new BuildingCollider(physics);
         physics.step(0.001f);
+        ecs.attachPhysics(physics);
 
         navGrid = new NavGrid(heightmap, 2.0f, 0.18f * heightmap.maxHeight());
-        navGrid.rebuildObstacles(placedBuildings, supplyPiles);
+        NavObstacleSync.rebuild(ecs, navGrid);
         pathFinder = new PathFinder(navGrid);
         navDebugMesh = new NavDebugMesh(navGrid);
-        unitManager = new UnitManager(navGrid, pathFinder, heightmap, physics);
 
         camera = new RtsCamera();
         camera.target().set(heightmap.worldSize() * 0.5f, 0f, heightmap.worldSize() * 0.5f);
@@ -103,12 +121,13 @@ public final class Engine {
         hud.init(window.handle());
         minimap = new Minimap(heightmap);
         hud.attachMinimap(minimap);
+        hud.attachEcs(ecs);
 
         HudState initialState = hud.state();
-        initialState.supplyPilesView = supplyPiles;
-        int totalMapCash = 0;
-        for (SupplyPile p : supplyPiles) totalMapCash += p.cash();
-        initialState.mapCashAvailable = totalMapCash;
+        int[] totalMapCash = { 0 };
+        ecs.dominion().findEntitiesWith(SupplyCash.class)
+                .stream().forEach(r -> totalMapCash[0] += r.comp().cash);
+        initialState.mapCashAvailable = totalMapCash[0];
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_MULTISAMPLE);
@@ -159,8 +178,7 @@ public final class Engine {
 
             HudState state = hud.state();
 
-            int incomeRate = 0;
-            for (PlacedBuilding p : placedBuildings) incomeRate += BuildingEconomy.income(p.name());
+            int incomeRate = IncomeSystem.totalRate(ecs);
             state.cashPerSecond = incomeRate;
             cashAccumulator += incomeRate * dt;
             if (cashAccumulator >= 1f) {
@@ -169,7 +187,7 @@ public final class Engine {
                 cashAccumulator -= whole;
             }
 
-            PlacedBuilding ghost = null;
+            BuildingGhost ghost = null;
             boolean ghostValid = false;
             if (state.pendingPlacementType != null) {
                 ghostValid = isPlacementValid(hover, state);
@@ -177,16 +195,15 @@ public final class Engine {
                     state.pendingPlacementType = null;
                 } else if (input.isMousePressed(GLFW_MOUSE_BUTTON_LEFT) && ghostValid) {
                     state.cash -= BuildingEconomy.cost(state.pendingPlacementType);
-                    PlacedBuilding placed = new PlacedBuilding(
+                    Entity entity = ecs.spawnBuilding(
                             state.pendingPlacementType,
                             hover.x, hover.y, hover.z, FOOTPRINT_HALF);
-                    placedBuildings.add(placed);
-                    buildingCollider.addBuilding(placed);
-                    navGrid.blockBuilding(placed);
+                    buildingCollider.addBuilding(entity, hover.x, hover.y, hover.z, FOOTPRINT_HALF);
+                    navGrid.blockBuilding(hover.x, hover.z, FOOTPRINT_HALF);
                     navDebugMesh.rebuild(navGrid);
                     state.pendingPlacementType = null;
                 } else if (hover != null) {
-                    ghost = new PlacedBuilding(
+                    ghost = new BuildingGhost(
                             state.pendingPlacementType,
                             hover.x, hover.y, hover.z, FOOTPRINT_HALF);
                 }
@@ -198,19 +215,26 @@ public final class Engine {
                 handleUnitProduction(state);
             }
 
-            unitManager.tick(dt, supplyPiles, placedBuildings, state);
-            if (unitManager.navObstaclesChanged()) {
+            PathFollowSystem.step(ecs, dt);
+            harvestSystem.step(ecs, dt, state, navGrid, pathFinder);
+            depositSystem.step(ecs, state, navGrid, pathFinder);
+            CollisionSystem.step(ecs);
+            TerrainStickSystem.step(ecs, heightmap);
+            PhysxSyncSystem.step(ecs, physics);
+
+            if (harvestSystem.consumeNavDirty()) {
+                NavObstacleSync.rebuild(ecs, navGrid);
                 navDebugMesh.rebuild(navGrid);
-                unitManager.clearNavObstaclesChanged();
             }
 
-            renderer.render(window, camera, terrainMesh, placedBuildings, supplyPiles,
-                    unitManager.units(),
+            renderer.render(window, camera, terrainMesh, ecs,
                     ghost, ghostValid,
                     showNavDebug ? navDebugMesh : null,
                     debugPath);
 
             hud.frame(dt, window, camera, hover);
+
+            ecs.flushDestroys();
 
             input.endFrame();
             window.swapAndPoll();
@@ -256,51 +280,52 @@ public final class Engine {
 
         if (!lmbDragging
                 && input.isMousePressed(GLFW_MOUSE_BUTTON_RIGHT)
-                && !unitManager.selected().isEmpty()
+                && selectionSystem.anySelected(ecs)
                 && hover != null) {
             boolean queue = input.isKeyPressed(GLFW_KEY_LEFT_SHIFT)
                     || input.isKeyPressed(GLFW_KEY_RIGHT_SHIFT);
-            SupplyPile pile = pileAt(hover);
-            if (pile != null && unitManager.anyWorkerSelected()) {
-                unitManager.issueHarvest(pile, placedBuildings);
+            Entity pile = pileAt(hover);
+            if (pile != null && selectionSystem.anyWorkerSelected(ecs)) {
+                selectionSystem.issueHarvest(ecs, pile, navGrid, pathFinder);
             } else {
-                unitManager.issueMove(hover, queue);
+                selectionSystem.issueMove(ecs, hover, queue, navGrid, pathFinder);
             }
         }
     }
 
     private void handleSingleClickSelect(HudState state, Vector3f hover, boolean shift) {
-        Unit hitUnit = renderer.pickUnit(
+        Entity hitUnit = renderer.pickUnit(
                 input.cursorX(), input.cursorY(),
-                window, camera, unitManager, input.gameWantsMouse());
+                window, camera, ecs, selectionSystem, input.gameWantsMouse());
         if (hitUnit != null) {
             clearBuildingSelection(state);
             if (shift) {
-                unitManager.addToSelection(hitUnit);
+                selectionSystem.addToSelection(hitUnit);
             } else {
-                unitManager.selectSingle(hitUnit);
+                selectionSystem.selectSingle(ecs, hitUnit);
             }
             syncUnitSelection(state);
             return;
         }
-        int idx = renderer.pickBuilding(
+        Entity hitBuilding = renderer.pickBuilding(
                 input.cursorX(), input.cursorY(),
-                window, camera, placedBuildings, SELECTION_HEIGHT,
+                window, camera, ecs, SELECTION_HEIGHT,
                 input.gameWantsMouse());
-        if (idx >= 0) {
-            PlacedBuilding hit = placedBuildings.get(idx);
-            unitManager.deselectAll();
+        if (hitBuilding != null) {
+            selectionSystem.deselectAll(ecs);
             syncUnitSelection(state);
-            state.selectedBuilding = hit;
-            state.selectionName = hit.name();
+            BuildingType bt = hitBuilding.get(BuildingType.class);
+            HealthState hp = hitBuilding.get(HealthState.class);
+            state.selectedBuilding = hitBuilding;
+            state.selectionName = bt != null ? bt.name() : "";
             state.selectionType = "Structure";
-            state.selectionHp = DEFAULT_HP;
-            state.selectionMaxHp = DEFAULT_HP;
+            state.selectionHp = hp != null ? hp.hp : DEFAULT_HP;
+            state.selectionMaxHp = hp != null ? hp.maxHp : DEFAULT_HP;
             state.selectionVeterancy = 0;
             return;
         }
         if (hover != null) {
-            unitManager.deselectAll();
+            selectionSystem.deselectAll(ecs);
             syncUnitSelection(state);
             clearBuildingSelection(state);
         }
@@ -309,34 +334,38 @@ public final class Engine {
     private final float[] projScratch = new float[2];
 
     private void selectUnitsInRect(HudState state, boolean shift) {
-        if (!shift) unitManager.deselectAll();
-        for (Unit u : unitManager.units()) {
-            float cx = u.pos.x;
-            float cy = u.pos.y + u.type.height * 0.5f;
-            float cz = u.pos.z;
-            if (!renderer.projectToScreen(cx, cy, cz, camera, window, projScratch)) continue;
-            float sx = projScratch[0];
-            float sy = projScratch[1];
-            if (sx >= state.dragX0 && sx <= state.dragX1
-                    && sy >= state.dragY0 && sy <= state.dragY1) {
-                unitManager.addToSelection(u);
-            }
-        }
+        if (!shift) selectionSystem.deselectAll(ecs);
+        ecs.dominion().findEntitiesWith(Transform.class, UnitKind.class)
+                .stream().forEach(r -> {
+                    Transform t = r.comp1();
+                    UnitKind k = r.comp2();
+                    float cx = t.pos.x;
+                    float cy = t.pos.y + k.type().height * 0.5f;
+                    float cz = t.pos.z;
+                    if (!renderer.projectToScreen(cx, cy, cz, camera, window, projScratch)) return;
+                    float sx = projScratch[0];
+                    float sy = projScratch[1];
+                    if (sx >= state.dragX0 && sx <= state.dragX1
+                            && sy >= state.dragY0 && sy <= state.dragY1) {
+                        selectionSystem.addToSelection(r.entity());
+                    }
+                });
         clearBuildingSelection(state);
         syncUnitSelection(state);
     }
 
-    private static final float PILE_PICK_HALF = 2f;
-
-    private SupplyPile pileAt(Vector3f world) {
-        for (SupplyPile p : supplyPiles) {
-            if (p.depleted()) continue;
-            if (Math.abs(p.cx() - world.x) <= PILE_PICK_HALF
-                    && Math.abs(p.cz() - world.z) <= PILE_PICK_HALF) {
-                return p;
-            }
-        }
-        return null;
+    private Entity pileAt(Vector3f world) {
+        Entity[] best = { null };
+        ecs.dominion().findEntitiesWith(Transform.class, SupplyCash.class)
+                .stream().forEach(r -> {
+                    if (r.comp2().cash <= 0) return;
+                    Transform t = r.comp1();
+                    if (Math.abs(t.pos.x - world.x) <= PILE_PICK_HALF
+                            && Math.abs(t.pos.z - world.z) <= PILE_PICK_HALF) {
+                        best[0] = r.entity();
+                    }
+                });
+        return best[0];
     }
 
     private void clearBuildingSelection(HudState state) {
@@ -350,7 +379,7 @@ public final class Engine {
 
     private void syncUnitSelection(HudState state) {
         state.selectedUnits.clear();
-        state.selectedUnits.addAll(unitManager.selected());
+        state.selectedUnits.addAll(selectionSystem.selectedUnits(ecs));
     }
 
     private void handleUnitProduction(HudState state) {
@@ -361,13 +390,15 @@ public final class Engine {
             state.cash += BuildingEconomy.unitCost(name);
             return;
         }
-        PlacedBuilding src = state.selectedBuilding;
+        Entity src = state.selectedBuilding;
         if (src == null) {
             state.cash += BuildingEconomy.unitCost(name);
             return;
         }
-        float offset = src.halfSize() + 2.0f;
-        unitManager.spawn(type, src.cx() + offset, src.cz());
+        Transform st = src.get(Transform.class);
+        BuildingType bt = src.get(BuildingType.class);
+        float offset = (bt != null ? bt.halfSize() : FOOTPRINT_HALF) + 2.0f;
+        UnitSpawnSystem.spawnNear(ecs, type, st.pos.x + offset, st.pos.z, navGrid, pathFinder);
     }
 
     private boolean isPlacementValid(Vector3f hover, HudState state) {
@@ -381,10 +412,17 @@ public final class Engine {
         float min = Math.min(Math.min(a, b), Math.min(c, d));
         float max = Math.max(Math.max(a, b), Math.max(c, d));
         if (max - min > MAX_SLOPE_DELTA) return false;
-        for (PlacedBuilding p : placedBuildings) {
-            if (p.overlapsXZ(cx, cz, h)) return false;
-        }
-        return true;
+        boolean[] overlap = { false };
+        ecs.dominion().findEntitiesWith(Transform.class, BuildingType.class)
+                .stream().forEach(r -> {
+                    if (overlap[0]) return;
+                    Vector3f p = r.comp1().pos;
+                    float bh = r.comp2().halfSize();
+                    if (Math.abs(p.x - cx) < (bh + h) && Math.abs(p.z - cz) < (bh + h)) {
+                        overlap[0] = true;
+                    }
+                });
+        return !overlap[0];
     }
 
     private void dispose() {
@@ -392,7 +430,7 @@ public final class Engine {
         if (navDebugMesh != null) navDebugMesh.dispose();
         if (renderer != null) renderer.dispose();
         if (terrainMesh != null) terrainMesh.dispose();
-        if (unitManager != null) unitManager.dispose();
+        if (ecs != null) ecs.shutdown();
         if (buildingCollider != null) buildingCollider.dispose();
         if (terrainCollider != null) terrainCollider.dispose();
         if (physics != null) physics.dispose();

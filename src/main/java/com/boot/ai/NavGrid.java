@@ -1,15 +1,11 @@
 package com.boot.ai;
 
 import com.boot.world.Heightmap;
-import com.boot.world.PlacedBuilding;
-import com.boot.world.SupplyPile;
 import org.joml.Vector3f;
-
-import java.util.List;
 
 public final class NavGrid {
 
-    private static final float PILE_HALF = 2f;
+    public static final float PILE_HALF = 2f;
 
     private final Heightmap hm;
     private final int size;
@@ -45,18 +41,16 @@ public final class NavGrid {
         System.arraycopy(terrainWalkable, 0, walkable, 0, n);
     }
 
-    public void rebuildObstacles(List<PlacedBuilding> buildings, List<SupplyPile> piles) {
+    public void resetObstacles() {
         System.arraycopy(terrainWalkable, 0, walkable, 0, size * size);
-        if (buildings != null) for (PlacedBuilding p : buildings) blockBuilding(p);
-        if (piles != null) for (SupplyPile p : piles) blockPile(p);
     }
 
-    public void blockBuilding(PlacedBuilding p) {
-        blockAABB(p.cx(), p.cz(), p.halfSize());
+    public void blockBuilding(float cx, float cz, float halfSize) {
+        blockAABB(cx, cz, halfSize);
     }
 
-    public void blockPile(SupplyPile p) {
-        blockAABB(p.cx(), p.cz(), PILE_HALF);
+    public void blockPile(float cx, float cz) {
+        blockAABB(cx, cz, PILE_HALF);
     }
 
     private void blockAABB(float cx, float cz, float half) {
