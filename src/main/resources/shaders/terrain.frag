@@ -6,6 +6,8 @@ in vec3 vNormal;
 uniform vec3 uLightDir;
 uniform vec3 uAmbient;
 uniform float uMaxHeight;
+uniform sampler2D uFogTex;
+uniform float uWorldExtent;
 
 out vec4 fragColor;
 
@@ -54,5 +56,9 @@ void main() {
     float ndl = max(dot(N, uLightDir), 0.0);
     vec3 lit = base * (uAmbient + ndl * (1.0 - uAmbient));
 
-    fragColor = vec4(lit, 1.0);
+    vec2 fogUV = vWorldPos.xz / uWorldExtent;
+    float fog = texture(uFogTex, fogUV).r;
+    float brightness = mix(0.04, 1.0, fog);
+
+    fragColor = vec4(lit * brightness, 1.0);
 }

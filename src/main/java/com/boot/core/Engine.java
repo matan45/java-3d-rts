@@ -18,10 +18,12 @@ import com.boot.ecs.systems.PhysxSyncSystem;
 import com.boot.ecs.systems.SelectionSystem;
 import com.boot.ecs.systems.TerrainStickSystem;
 import com.boot.ecs.systems.UnitSpawnSystem;
+import com.boot.ecs.systems.VisionSystem;
 import com.boot.economy.BuildingEconomy;
 import com.boot.physics.BuildingCollider;
 import com.boot.physics.PhysicsWorld;
 import com.boot.physics.TerrainCollider;
+import com.boot.render.FogTexture;
 import com.boot.render.NavDebugMesh;
 import com.boot.render.Renderer;
 import com.boot.render.TerrainMesh;
@@ -33,6 +35,7 @@ import com.boot.world.BuildingGhost;
 import com.boot.world.Heightmap;
 import com.boot.world.RtsCamera;
 import com.boot.world.SupplyPileScatter;
+import com.boot.world.VisionGrid;
 import dev.dominion.ecs.api.Entity;
 import org.joml.Vector3f;
 
@@ -63,6 +66,8 @@ public final class Engine {
     private TerrainCollider terrainCollider;
     private BuildingCollider buildingCollider;
     private EcsWorld ecs;
+    private VisionGrid visionGrid;
+    private FogTexture fogTexture;
 
     private NavGrid navGrid;
     private PathFinder pathFinder;
@@ -96,7 +101,23 @@ public final class Engine {
         window = new Window("Java 3D RTS", 1600, 900);
         input = new Input(window);
 
-        heightmap = new Heightmap(256, 1.0f, 30f, WORLD_SEED);
+        int mapSize = 256;
+        float quad = 1.0f;
+        float vScale = 30f;
+        float worldExtent = (mapSize - 1) * quad;
+        float plateauMargin = 40f;
+        float plateauInner = 22f;
+        float plateauOuter = 42f;
+        float plateauHeight = 8f;
+        float near = plateauMargin;
+        float far = worldExtent - plateauMargin;
+        List<Heightmap.Plateau> plateaus = List.of(
+                new Heightmap.Plateau(near, near, plateauInner, plateauOuter, plateauHeight),
+                new Heightmap.Plateau(far,  near, plateauInner, plateauOuter, plateauHeight),
+                new Heightmap.Plateau(near, far,  plateauInner, plateauOuter, plateauHeight),
+                new Heightmap.Plateau(far,  far,  plateauInner, plateauOuter, plateauHeight)
+        );
+        heightmap = new Heightmap(mapSize, quad, vScale, WORLD_SEED, plateaus);
         terrainMesh = new TerrainMesh(heightmap);
 
         ecs = new EcsWorld();
@@ -122,6 +143,15 @@ public final class Engine {
         minimap = new Minimap(heightmap);
         hud.attachMinimap(minimap);
         hud.attachEcs(ecs);
+
+        visionGrid = new VisionGrid(heightmap.worldSize(), 2.0f);
+        for (Heightmap.Plateau p : heightmap.plateaus()) {
+            visionGrid.revealPermanent(p.worldX(), p.worldZ(), p.outerRadius() + 6f);
+        }
+        fogTexture = new FogTexture(visionGrid.width(), visionGrid.height());
+        VisionSystem.step(ecs, visionGrid);
+        fogTexture.update(visionGrid);
+        minimap.update(visionGrid);
 
         HudState initialState = hud.state();
         int[] totalMapCash = { 0 };
@@ -221,6 +251,9 @@ public final class Engine {
             CollisionSystem.step(ecs);
             TerrainStickSystem.step(ecs, heightmap);
             PhysxSyncSystem.step(ecs, physics);
+            VisionSystem.step(ecs, visionGrid);
+            fogTexture.update(visionGrid);
+            minimap.update(visionGrid);
 
             if (harvestSystem.consumeNavDirty()) {
                 NavObstacleSync.rebuild(ecs, navGrid);
@@ -230,7 +263,8 @@ public final class Engine {
             renderer.render(window, camera, terrainMesh, ecs,
                     ghost, ghostValid,
                     showNavDebug ? navDebugMesh : null,
-                    debugPath);
+                    debugPath,
+                    visionGrid, fogTexture);
 
             hud.frame(dt, window, camera, hover);
 
@@ -429,6 +463,8 @@ public final class Engine {
         if (hud != null) hud.dispose();
         if (navDebugMesh != null) navDebugMesh.dispose();
         if (renderer != null) renderer.dispose();
+        if (fogTexture != null) fogTexture.dispose();
+        if (minimap != null) minimap.dispose();
         if (terrainMesh != null) terrainMesh.dispose();
         if (ecs != null) ecs.shutdown();
         if (buildingCollider != null) buildingCollider.dispose();

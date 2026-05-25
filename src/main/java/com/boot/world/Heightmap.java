@@ -2,20 +2,32 @@ package com.boot.world;
 
 import org.joml.SimplexNoise;
 
+import java.util.List;
+
 public final class Heightmap {
+
+    public record Plateau(float worldX, float worldZ,
+                          float innerRadius, float outerRadius,
+                          float targetHeight) {}
 
     private final int size;
     private final float quadSize;
     private final float verticalScale;
     private final float[] heights;
+    private final List<Plateau> plateaus;
     private float minHeight = Float.POSITIVE_INFINITY;
     private float maxHeight = Float.NEGATIVE_INFINITY;
 
     public Heightmap(int size, float quadSize, float verticalScale, long seed) {
+        this(size, quadSize, verticalScale, seed, List.of());
+    }
+
+    public Heightmap(int size, float quadSize, float verticalScale, long seed, List<Plateau> plateaus) {
         this.size = size;
         this.quadSize = quadSize;
         this.verticalScale = verticalScale;
         this.heights = new float[size * size];
+        this.plateaus = List.copyOf(plateaus);
 
         float ox = ((seed * 1664525L + 1013904223L) & 0xFFFFFF) * 0.001f;
         float oz = ((seed * 22695477L + 1L) & 0xFFFFFF) * 0.001f;
@@ -40,12 +52,43 @@ public final class Heightmap {
                 }
                 float n01 = (sum / maxAmp) * 0.5f + 0.5f;
                 n01 = (float) Math.pow(n01, 1.35);
-                float h = n01 * verticalScale;
+                float fbmHeight = n01 * verticalScale;
+
+                float wx = i * quadSize;
+                float wz = j * quadSize;
+                float flatness = 0f;
+                float weightSum = 0f;
+                float baseSum = 0f;
+                for (Plateau p : this.plateaus) {
+                    float dx = wx - p.worldX;
+                    float dz = wz - p.worldZ;
+                    float d = (float) Math.sqrt(dx * dx + dz * dz);
+                    float influence = 1f - smoothstep(p.innerRadius, p.outerRadius, d);
+                    if (influence <= 0f) continue;
+                    if (influence > flatness) flatness = influence;
+                    weightSum += influence;
+                    baseSum += influence * p.targetHeight;
+                }
+                float h;
+                if (weightSum > 0f) {
+                    float baseH = baseSum / weightSum;
+                    h = fbmHeight + (baseH - fbmHeight) * flatness;
+                } else {
+                    h = fbmHeight;
+                }
+
                 heights[j * size + i] = h;
                 if (h < minHeight) minHeight = h;
                 if (h > maxHeight) maxHeight = h;
             }
         }
+    }
+
+    private static float smoothstep(float edge0, float edge1, float x) {
+        if (edge1 <= edge0) return x < edge0 ? 0f : 1f;
+        float t = (x - edge0) / (edge1 - edge0);
+        if (t < 0f) t = 0f; else if (t > 1f) t = 1f;
+        return t * t * (3f - 2f * t);
     }
 
     public int size() { return size; }
@@ -54,6 +97,7 @@ public final class Heightmap {
     public float verticalScale() { return verticalScale; }
     public float minHeight() { return minHeight; }
     public float maxHeight() { return maxHeight; }
+    public List<Plateau> plateaus() { return plateaus; }
 
     public float heightAtGrid(int i, int j) {
         if (i < 0) i = 0; else if (i >= size) i = size - 1;

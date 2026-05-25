@@ -14,6 +14,7 @@ import com.boot.physics.PhysicsWorld;
 import com.boot.ui.HudState;
 import com.boot.world.BuildingGhost;
 import com.boot.world.RtsCamera;
+import com.boot.world.VisionGrid;
 import dev.dominion.ecs.api.Entity;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -94,11 +95,13 @@ public final class Renderer {
     public void render(Window window, RtsCamera camera, TerrainMesh terrain,
                        EcsWorld ecs,
                        BuildingGhost ghost, boolean ghostValid,
-                       NavDebugMesh navDebug, List<Vector3f> debugPath) {
+                       NavDebugMesh navDebug, List<Vector3f> debugPath,
+                       VisionGrid visionGrid, FogTexture fogTexture) {
         glViewport(0, 0, window.framebufferWidth(), window.framebufferHeight());
         glClearColor(0.50f, 0.65f, 0.82f, 1f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        fogTexture.bind(0);
         terrainShader.bind();
         terrainShader.setMat4("uProj", camera.projection());
         terrainShader.setMat4("uView", camera.view());
@@ -106,6 +109,8 @@ public final class Renderer {
         terrainShader.setVec3("uLightDir", lightDir);
         terrainShader.setVec3("uAmbient", ambient);
         terrainShader.setFloat("uMaxHeight", terrain.maxHeight());
+        terrainShader.setInt("uFogTex", 0);
+        terrainShader.setFloat("uWorldExtent", visionGrid.worldExtent());
         terrain.render();
         terrainShader.unbind();
 
@@ -132,6 +137,7 @@ public final class Renderer {
         ecs.dominion().findEntitiesWith(Transform.class, SupplyCash.class)
                 .stream().forEach(r -> {
                     Vector3f p = r.comp1().pos;
+                    if (visionGrid.stateAtWorld(p.x, p.z) == VisionGrid.UNEXPLORED) return;
                     model.identity()
                             .translate(p.x, p.y + PILE_HALF, p.z)
                             .scale(PILE_HALF);
