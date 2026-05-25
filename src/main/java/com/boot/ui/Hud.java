@@ -7,6 +7,7 @@ import com.boot.ecs.components.Transform;
 import com.boot.ecs.components.UnitKind;
 import com.boot.economy.BuildingEconomy;
 import com.boot.world.RtsCamera;
+import com.boot.world.VisionGrid;
 import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.ImGuiIO;
@@ -27,6 +28,7 @@ public final class Hud {
     private final HudState state = new HudState();
     private Minimap minimap;
     private EcsWorld ecs;
+    private VisionGrid visionGrid;
 
     private double frameMsEma = 16.0;
 
@@ -71,6 +73,10 @@ public final class Hud {
 
     public void attachEcs(EcsWorld ecs) {
         this.ecs = ecs;
+    }
+
+    public void attachVisionGrid(VisionGrid visionGrid) {
+        this.visionGrid = visionGrid;
     }
 
     public HudState state() { return state; }
@@ -319,6 +325,8 @@ public final class Hud {
             ecs.dominion().findEntitiesWith(Transform.class, SupplyCash.class)
                     .stream().forEach(r -> {
                         Transform tt = r.comp1();
+                        if (visionGrid != null
+                                && visionGrid.stateAtWorld(tt.pos.x, tt.pos.z) == VisionGrid.UNEXPLORED) return;
                         float dx = cursor.x + (tt.pos.x / ws) * size;
                         float dz = cursor.y + (tt.pos.z / ws) * size;
                         dl.addCircleFilled(dx, dz, 2.5f, 0xFF22CC44);

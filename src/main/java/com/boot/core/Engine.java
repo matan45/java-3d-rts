@@ -6,6 +6,8 @@ import com.boot.ecs.EcsWorld;
 import com.boot.ecs.components.BuildingType;
 import com.boot.ecs.components.HealthState;
 import com.boot.ecs.components.SupplyCash;
+import com.boot.ecs.components.Team;
+import com.boot.ecs.components.TeamOwner;
 import com.boot.ecs.components.Transform;
 import com.boot.ecs.components.UnitKind;
 import com.boot.ecs.systems.CollisionSystem;
@@ -134,8 +136,17 @@ public final class Engine {
         pathFinder = new PathFinder(navGrid);
         navDebugMesh = new NavDebugMesh(navGrid);
 
+        spawnEnemies();
+        NavObstacleSync.rebuild(ecs, navGrid);
+        navDebugMesh.rebuild(navGrid);
+
         camera = new RtsCamera();
-        camera.target().set(heightmap.worldSize() * 0.5f, 0f, heightmap.worldSize() * 0.5f);
+        if (!heightmap.plateaus().isEmpty()) {
+            Heightmap.Plateau home = heightmap.plateaus().get(0);
+            camera.target().set(home.worldX(), home.targetHeight(), home.worldZ());
+        } else {
+            camera.target().set(heightmap.worldSize() * 0.5f, 0f, heightmap.worldSize() * 0.5f);
+        }
 
         renderer = new Renderer();
         hud = new Hud();
@@ -145,8 +156,10 @@ public final class Engine {
         hud.attachEcs(ecs);
 
         visionGrid = new VisionGrid(heightmap.worldSize(), 2.0f);
-        for (Heightmap.Plateau p : heightmap.plateaus()) {
-            visionGrid.revealPermanent(p.worldX(), p.worldZ(), p.outerRadius() + 6f);
+        hud.attachVisionGrid(visionGrid);
+        if (!heightmap.plateaus().isEmpty()) {
+            Heightmap.Plateau home = heightmap.plateaus().get(0);
+            visionGrid.revealPermanent(home.worldX(), home.worldZ(), home.outerRadius() + 6f);
         }
         fogTexture = new FogTexture(visionGrid.width(), visionGrid.height());
         VisionSystem.step(ecs, visionGrid);
@@ -227,7 +240,7 @@ public final class Engine {
                     state.cash -= BuildingEconomy.cost(state.pendingPlacementType);
                     Entity entity = ecs.spawnBuilding(
                             state.pendingPlacementType,
-                            hover.x, hover.y, hover.z, FOOTPRINT_HALF);
+                            hover.x, hover.y, hover.z, FOOTPRINT_HALF, Team.PLAYER);
                     buildingCollider.addBuilding(entity, hover.x, hover.y, hover.z, FOOTPRINT_HALF);
                     navGrid.blockBuilding(hover.x, hover.z, FOOTPRINT_HALF);
                     navDebugMesh.rebuild(navGrid);
@@ -371,6 +384,7 @@ public final class Engine {
         if (!shift) selectionSystem.deselectAll(ecs);
         ecs.dominion().findEntitiesWith(Transform.class, UnitKind.class)
                 .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
                     Transform t = r.comp1();
                     UnitKind k = r.comp2();
                     float cx = t.pos.x;
@@ -386,6 +400,23 @@ public final class Engine {
                 });
         clearBuildingSelection(state);
         syncUnitSelection(state);
+    }
+
+    private void spawnEnemies() {
+        java.util.List<Heightmap.Plateau> all = heightmap.plateaus();
+        if (all.size() < 2) return;
+        for (int i = 1; i < all.size(); i++) {
+            Heightmap.Plateau p = all.get(i);
+            float bx = p.worldX();
+            float bz = p.worldZ();
+            float by = heightmap.heightAt(bx, bz);
+            Entity b = ecs.spawnBuilding("Barracks", bx, by, bz, FOOTPRINT_HALF, Team.ENEMY);
+            buildingCollider.addBuilding(b, bx, by, bz, FOOTPRINT_HALF);
+            navGrid.blockBuilding(bx, bz, FOOTPRINT_HALF);
+
+            UnitSpawnSystem.spawnNear(ecs, UnitType.RANGER, bx + 7f, bz + 2f, navGrid, pathFinder, Team.ENEMY);
+            UnitSpawnSystem.spawnNear(ecs, UnitType.RANGER, bx - 2f, bz + 7f, navGrid, pathFinder, Team.ENEMY);
+        }
     }
 
     private Entity pileAt(Vector3f world) {
@@ -432,7 +463,7 @@ public final class Engine {
         Transform st = src.get(Transform.class);
         BuildingType bt = src.get(BuildingType.class);
         float offset = (bt != null ? bt.halfSize() : FOOTPRINT_HALF) + 2.0f;
-        UnitSpawnSystem.spawnNear(ecs, type, st.pos.x + offset, st.pos.z, navGrid, pathFinder);
+        UnitSpawnSystem.spawnNear(ecs, type, st.pos.x + offset, st.pos.z, navGrid, pathFinder, Team.PLAYER);
     }
 
     private boolean isPlacementValid(Vector3f hover, HudState state) {

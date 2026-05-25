@@ -11,6 +11,8 @@ import com.boot.ecs.components.Renderable;
 import com.boot.ecs.components.Selectable;
 import com.boot.ecs.components.SupplyCash;
 import com.boot.ecs.components.SupplyPileTag;
+import com.boot.ecs.components.Team;
+import com.boot.ecs.components.TeamOwner;
 import com.boot.ecs.components.Transform;
 import com.boot.ecs.components.UnitKind;
 import com.boot.ecs.components.UnitTag;
@@ -62,7 +64,7 @@ public final class EcsWorld {
         );
     }
 
-    public Entity spawnBuilding(String name, float cx, float cy, float cz, float halfSize) {
+    public Entity spawnBuilding(String name, float cx, float cy, float cz, float halfSize, Team team) {
         return dominion.createEntity(
                 new Transform(cx, cy, cz),
                 new BuildingType(name, halfSize),
@@ -71,25 +73,41 @@ public final class EcsWorld {
                         halfSize, halfSize, halfSize, name),
                 new HealthState(BUILDING_DEFAULT_HP, BUILDING_DEFAULT_HP),
                 new IncomeSource(BuildingEconomy.income(name)),
+                new TeamOwner(team),
                 BuildingTag.INSTANCE
         );
     }
 
-    public Entity spawnUnit(UnitType type, float x, float y, float z) {
+    public Entity spawnUnit(UnitType type, float x, float y, float z, Team team) {
         PxRigidDynamic actor = physics != null
                 ? physics.createKinematicSphere(x, y + type.radius, z, type.radius)
                 : null;
+        if (team == Team.PLAYER) {
+            return dominion.createEntity(
+                    new Transform(x, y, z),
+                    new UnitKind(type),
+                    new PathFollower(),
+                    new Harvester(),
+                    new Selectable(),
+                    new HealthState(UNIT_DEFAULT_HP, UNIT_DEFAULT_HP),
+                    new PhysicsBody(actor),
+                    new Renderable(Renderable.Kind.UNIT_CUBE,
+                            type.r, type.g, type.b, 1f,
+                            type.radius, type.height * 0.5f, type.radius, null),
+                    new TeamOwner(team),
+                    UnitTag.INSTANCE
+            );
+        }
         return dominion.createEntity(
                 new Transform(x, y, z),
                 new UnitKind(type),
                 new PathFollower(),
-                new Harvester(),
-                new Selectable(),
                 new HealthState(UNIT_DEFAULT_HP, UNIT_DEFAULT_HP),
                 new PhysicsBody(actor),
                 new Renderable(Renderable.Kind.UNIT_CUBE,
                         type.r, type.g, type.b, 1f,
                         type.radius, type.height * 0.5f, type.radius, null),
+                new TeamOwner(team),
                 UnitTag.INSTANCE
         );
     }

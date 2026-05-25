@@ -9,6 +9,7 @@ import com.boot.ecs.components.MovementState;
 import com.boot.ecs.components.PathFollower;
 import com.boot.ecs.components.Selectable;
 import com.boot.ecs.components.SupplyCash;
+import com.boot.ecs.components.TeamOwner;
 import com.boot.ecs.components.Transform;
 import com.boot.ecs.components.UnitKind;
 import dev.dominion.ecs.api.Entity;
@@ -24,13 +25,19 @@ public final class SelectionSystem {
     public List<Entity> selectedUnits(EcsWorld ecs) {
         List<Entity> out = new ArrayList<>();
         ecs.dominion().findEntitiesWith(Selectable.class, UnitKind.class)
-                .stream().forEach(r -> { if (r.comp1().selected) out.add(r.entity()); });
+                .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
+                    if (r.comp1().selected) out.add(r.entity());
+                });
         return out;
     }
 
     public void deselectAll(EcsWorld ecs) {
         ecs.dominion().findEntitiesWith(Selectable.class, UnitKind.class)
-                .stream().forEach(r -> r.comp1().selected = false);
+                .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
+                    r.comp1().selected = false;
+                });
     }
 
     public void selectSingle(EcsWorld ecs, Entity unit) {
@@ -48,6 +55,7 @@ public final class SelectionSystem {
         ecs.dominion().findEntitiesWith(Selectable.class, UnitKind.class)
                 .stream().forEach(r -> {
                     if (found[0]) return;
+                    if (!TeamOwner.isPlayer(r.entity())) return;
                     if (r.comp1().selected && r.comp2().type().isWorker()) found[0] = true;
                 });
         return found[0];
@@ -56,7 +64,10 @@ public final class SelectionSystem {
     public boolean anySelected(EcsWorld ecs) {
         boolean[] found = { false };
         ecs.dominion().findEntitiesWith(Selectable.class, UnitKind.class)
-                .stream().forEach(r -> { if (r.comp1().selected) found[0] = true; });
+                .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
+                    if (r.comp1().selected) found[0] = true;
+                });
         return found[0];
     }
 
@@ -66,6 +77,7 @@ public final class SelectionSystem {
         int gz = grid.toCellJ(target.z);
         ecs.dominion().findEntitiesWith(Selectable.class, Transform.class, PathFollower.class, Harvester.class)
                 .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
                     if (!r.comp1().selected) return;
                     Transform t = r.comp2();
                     PathFollower pf = r.comp3();
@@ -100,6 +112,7 @@ public final class SelectionSystem {
         Transform pileT = pile.get(Transform.class);
         ecs.dominion().findEntitiesWith(Selectable.class, Transform.class, PathFollower.class, Harvester.class, UnitKind.class)
                 .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
                     if (!r.comp1().selected) return;
                     if (!r.comp5().type().isWorker()) return;
                     Transform t = r.comp2();
@@ -121,6 +134,7 @@ public final class SelectionSystem {
         float[] bestT = { maxDist };
         ecs.dominion().findEntitiesWith(Transform.class, UnitKind.class)
                 .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
                     Transform tt = r.comp1();
                     UnitKind k = r.comp2();
                     float rad = k.type().radius;

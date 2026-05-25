@@ -7,6 +7,8 @@ import com.boot.ecs.components.MovementState;
 import com.boot.ecs.components.PathFollower;
 import com.boot.ecs.components.Selectable;
 import com.boot.ecs.components.SupplyCash;
+import com.boot.ecs.components.Team;
+import com.boot.ecs.components.TeamOwner;
 import com.boot.ecs.components.Transform;
 import com.boot.ecs.components.UnitKind;
 import com.boot.ecs.systems.SelectionSystem;
@@ -42,10 +44,13 @@ public final class Renderer {
     private final Vector3f lightDir = new Vector3f(-0.45f, -0.85f, -0.30f).normalize().negate();
     private final Vector3f ambient = new Vector3f(0.30f, 0.32f, 0.38f);
 
-    private static final float[] BUILDING_TINT  = { 0.78f, 0.74f, 0.65f, 1.00f };
-    private static final float[] SUPPLY_TINT    = { 0.20f, 0.85f, 0.30f, 1.00f };
-    private static final float[] GHOST_VALID    = { 0.30f, 1.00f, 0.40f, 0.45f };
-    private static final float[] GHOST_INVALID  = { 1.00f, 0.30f, 0.30f, 0.45f };
+    private static final float[] BUILDING_TINT       = { 0.78f, 0.74f, 0.65f, 1.00f };
+    private static final float[] BUILDING_TINT_ENEMY = { 0.62f, 0.40f, 0.38f, 1.00f };
+    private static final float[] SUPPLY_TINT         = { 0.20f, 0.85f, 0.30f, 1.00f };
+    private static final float[] GHOST_VALID         = { 0.30f, 1.00f, 0.40f, 0.45f };
+    private static final float[] GHOST_INVALID       = { 1.00f, 0.30f, 0.30f, 0.45f };
+    private static final float[] TEAM_RING_PLAYER    = { 0.25f, 0.55f, 1.00f, 1.00f };
+    private static final float[] TEAM_RING_ENEMY     = { 1.00f, 0.30f, 0.30f, 1.00f };
 
     private static final float PILE_HALF = 2f;
 
@@ -120,13 +125,16 @@ public final class Renderer {
         buildingShader.setVec3("uLightDir", lightDir);
         buildingShader.setVec3("uAmbient", ambient);
 
-        buildingShader.setVec4("uTint",
-                BUILDING_TINT[0], BUILDING_TINT[1], BUILDING_TINT[2], BUILDING_TINT[3]);
         ecs.dominion().findEntitiesWith(Transform.class, BuildingType.class)
                 .stream().forEach(r -> {
                     Mesh mesh = buildingMeshes.get(r.comp2().name());
                     if (mesh == null) return;
                     Vector3f p = r.comp1().pos;
+                    Team team = TeamOwner.teamOf(r.entity());
+                    if (team == Team.ENEMY
+                            && visionGrid.stateAtWorld(p.x, p.z) == VisionGrid.UNEXPLORED) return;
+                    float[] tint = team == Team.ENEMY ? BUILDING_TINT_ENEMY : BUILDING_TINT;
+                    buildingShader.setVec4("uTint", tint[0], tint[1], tint[2], tint[3]);
                     model.identity().translate(p.x, p.y, p.z);
                     buildingShader.setMat4("uModel", model);
                     mesh.render();
@@ -149,6 +157,9 @@ public final class Renderer {
                 .stream().forEach(r -> {
                     Transform t = r.comp1();
                     UnitKind k = r.comp2();
+                    Team team = TeamOwner.teamOf(r.entity());
+                    if (team == Team.ENEMY
+                            && visionGrid.stateAtWorld(t.pos.x, t.pos.z) != VisionGrid.VISIBLE) return;
                     buildingShader.setVec4("uTint", k.type().r, k.type().g, k.type().b, 1f);
                     float halfH = k.type().height * 0.5f;
                     model.identity()
@@ -158,8 +169,25 @@ public final class Renderer {
                     buildingShader.setMat4("uModel", model);
                     cubeMesh.render();
                 });
+        ecs.dominion().findEntitiesWith(Transform.class, UnitKind.class)
+                .stream().forEach(r -> {
+                    Transform t = r.comp1();
+                    UnitKind k = r.comp2();
+                    Team team = TeamOwner.teamOf(r.entity());
+                    if (team == Team.ENEMY
+                            && visionGrid.stateAtWorld(t.pos.x, t.pos.z) != VisionGrid.VISIBLE) return;
+                    float[] ring = team == Team.ENEMY ? TEAM_RING_ENEMY : TEAM_RING_PLAYER;
+                    buildingShader.setVec4("uTint", ring[0], ring[1], ring[2], ring[3]);
+                    float rad = k.type().radius * 1.4f;
+                    model.identity()
+                            .translate(t.pos.x, t.pos.y + 0.04f, t.pos.z)
+                            .scale(rad, 0.03f, rad);
+                    buildingShader.setMat4("uModel", model);
+                    cubeMesh.render();
+                });
         ecs.dominion().findEntitiesWith(Transform.class, UnitKind.class, Selectable.class, PathFollower.class)
                 .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
                     if (!r.comp3().selected) return;
                     Transform t = r.comp1();
                     UnitKind k = r.comp2();
@@ -261,6 +289,7 @@ public final class Renderer {
         float[] bestT = { Float.MAX_VALUE };
         ecs.dominion().findEntitiesWith(Transform.class, BuildingType.class)
                 .stream().forEach(r -> {
+                    if (!TeamOwner.isPlayer(r.entity())) return;
                     Vector3f p = r.comp1().pos;
                     float h = r.comp2().halfSize();
                     float t = intersectAABB(
